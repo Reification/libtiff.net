@@ -1,9 +1,9 @@
 ﻿using System;
 using System.IO;
 
-namespace Tiff2Raw {
+namespace GeoTiff2Raw {
 	class Program {
-		static private string appName = "Tiff2Raw";
+		static private string appName = "GeoTiff2Raw";
 
 		static private string[] usageText = {
 			appName + " <input.tif> [-overwrite] <output.raw>",

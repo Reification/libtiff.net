@@ -3,6 +3,8 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26730.16
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GeoTiff2Raw", "GeoTiff2Raw\GeoTiff2Raw.csproj", "{A2ADE696-98E7-4F49-8914-29BD4C20C999}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LibTiff", "LibTiff\LibTiff.csproj", "{281EF657-40C0-432D-8AC4-E9ADDFD792B2}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TiffCP", "TiffCP\TiffCP.csproj", "{A5D6375E-7A29-48F2-A839-B7AE7ADB9753}"
@@ -12,8 +14,6 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UnitTests", "UnitTests\UnitTests.csproj", "{7F75C2A2-442F-46F5-B0A0-27A52B0193DE}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tiff2Rgba", "Tiff2Rgba\Tiff2Rgba.csproj", "{0609056D-F67F-463A-AE18-FD3C60FF273D}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tiff2Raw", "Tiff2Raw\Tiff2Raw.csproj", "{A2ADE696-98E7-4F49-8914-29BD4C20C999}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

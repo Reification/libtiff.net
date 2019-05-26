@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{A2ADE696-98E7-4F49-8914-29BD4C20C999}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Tiff2Raw</RootNamespace>
-    <AssemblyName>Tiff2Raw</AssemblyName>
+    <RootNamespace>GeoTiff2Raw</RootNamespace>
+    <AssemblyName>GeoTiff2Raw</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -33,7 +33,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject>Tiff2Raw.Program</StartupObject>
+    <StartupObject>GeoTiff2Raw.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />

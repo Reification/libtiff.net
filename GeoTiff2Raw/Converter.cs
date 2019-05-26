@@ -3,7 +3,7 @@ using System.IO;
 
 using BitMiracle.LibTiff.Classic;
 
-namespace Tiff2Raw {
+namespace GeoTiff2Raw {
 	public class Converter {
 		public string inputTiffPath = null;
 		public string outputRawPath = null;
@@ -175,6 +175,13 @@ namespace Tiff2Raw {
 
 				int width = inImage.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
 				int height = inImage.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
+				int rowsPerStrip = inImage.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
+
+				bool isByteSwapped = inImage.IsByteSwapped();
+
+				if ( rowsPerStrip != 1 ) {
+					error("Images must be stripped with 1 row per strip. {0} rows per strip not supported.", rowsPerStrip);
+				}
 
 				dv3 scale = getModelPixelScale(inImage);
 				TiePoint[] tiePoints = getModelTiePoints(inImage);
@@ -189,10 +196,29 @@ namespace Tiff2Raw {
 
 				var rawRaster = new ushort[width * height];
 				var srcRow = new float[width];
+				var srcByteRow = new byte[width * 4];
+
 				var dstRowIdx = 0;
 
 				for ( int y = 0; y < height; y++, dstRowIdx += width ) {
-					// read row!
+					int readCount = inImage.ReadEncodedStrip(y, srcByteRow, 0, -1);
+					if ( readCount != width * 4 ) {
+						error("invalid strip size bytes. Expected {0} got {1}", width * 4, readCount);
+					}
+
+					if ( isByteSwapped ) {
+						for ( int b = 0, bc = width * 4; b < bc; b += 4 ) {
+							byte t = srcByteRow[b + 0];
+							srcByteRow[b + 0] = srcByteRow[b + 3];
+							srcByteRow[b + 3] = t;
+							t = srcByteRow[b + 1];
+							srcByteRow[b + 1] = srcByteRow[b + 2];
+							srcByteRow[b + 2] = t;
+						}
+					}
+
+					Buffer.BlockCopy(srcByteRow, 0, srcRow, 0, srcByteRow.Length);
+
 					for (int x = 0; x < width; x++) {
 						rawRaster[dstRowIdx + x] = (ushort)((srcRow[x] - minVal) * maxScale);
 					}
