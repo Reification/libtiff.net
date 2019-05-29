@@ -1,5 +1,5 @@
 ﻿namespace GeoTiff2Raw {
-	enum GeoTiffTag {
+	public enum GeoTiffTag {
 		NONE = 0,
 		MODELPIXELSCALETAG = 33550,
 		MODELTIEPOINTTAG = 33922,
@@ -10,7 +10,7 @@
 		GDALNODATATAG = 42113
 	}
 
-	enum GeoKey {
+	public enum GeoKey {
 		GTModelType = 1024,
 		GTRasterType = 1025,
 		GTCitation = 1026,
@@ -61,20 +61,20 @@
 		VerticalUnits = 4099
 	}
 
-	enum ModelType {
+	public enum ModelType {
 		Undefined = 0,
 		Projected = 1,   // planar projection coordinate system
 		Geographic = 2,  // latitude, longitude
 		Geocentric = 3   // X, Y, Z
 	}
 
-	enum RasterType {
+	public enum RasterType {
 		Undefined = 0,
 		PixelIsArea = 0,
 		PixelIsPoint = 2
 	}
 
-	enum LinearUnitCode {
+	public enum LinearUnitCode {
 		Undefined = 0,
 		Linear_Meter = 9001,
 		Linear_Foot = 9002,
@@ -93,7 +93,7 @@
 		Linear_Mile_International_Nautical = 9015
 	}
 
-	enum AngularUnitCode {
+	public enum AngularUnitCode {
 		Undefined = 0,
 		Angular_Radian = 9101,
 		Angular_Degree = 9102,
@@ -105,7 +105,7 @@
 		Angular_DMS_Hemisphere = 9108
 	}
 
-	enum GeographicCSType {
+	public enum GeographicCSType {
 		Undefined = 0,
 		GCS_Adindan = 4201,
 		GCS_AGD66 = 4202,
@@ -278,7 +278,7 @@
 		GCSE_Sphere = 4035
 	}
 
-	enum GeodeticDatumCode {
+	public enum GeodeticDatumCode {
 		Undefined = 0,
 		Datum_Adindan = 6201,
 		Datum_Australian_Geodetic_Datum_1966 = 6202,
@@ -437,7 +437,7 @@
 		DatumE_Sphere = 6035
 	}
 
-	enum EllipsoidCode {
+	public enum EllipsoidCode {
 		Undefined = 0,
 		Ellipse_Airy_1830 = 7001,
 		Ellipse_Airy_Modified_1849 = 7002,
@@ -476,7 +476,7 @@
 		Ellipse_Sphere = 7035
 	}
 
-	enum PrimeMeridianCode {
+	public enum PrimeMeridianCode {
 		Undefined = 0,
 		PM_Greenwich = 8901,
 		PM_Lisbon = 8902,
@@ -491,7 +491,7 @@
 		PM_Stockholm = 8911
 	}
 
-	enum ProjectedCSTypeCode {
+	public enum ProjectedCSTypeCode {
 		Undefined = 0,
 		PCS_Adindan_UTM_zone_37N = 20137,
 		PCS_Adindan_UTM_zone_38N = 20138,
@@ -1473,7 +1473,7 @@
 		PCS_WGS84_UTM_zone_60S = 32760
 	}
 
-	enum ProjectionCode {
+	public enum ProjectionCode {
 		Undefined = 0,
 		Proj_Alabama_CS27_East = 10101,
 		Proj_Alabama_CS27_West = 10102,
@@ -1775,7 +1775,7 @@
 		Proj_RSO_Borneo = 19912
 	}
 
-	enum CoordTransformCode {
+	public enum CoordTransformCode {
 		Undefined = 0,
 		CT_TransverseMercator = 1,
 		CT_TransvMercator_Modified_Alaska = 2,
@@ -1816,7 +1816,7 @@
 		CT_SouthOrientedGaussConformal = CT_TransvMercator_SouthOriented
 	}
 
-	enum VerticalCSTypeCode {
+	public enum VerticalCSTypeCode {
 		Undefined = 0,
 		VertCS_Airy_1830_ellipsoid = 5001,
 		VertCS_Airy_Modified_1849_ellipsoid = 5002,
@@ -1860,7 +1860,7 @@
 		VertCS_Caspian_Sea = 5106
 	}
 
-	enum VerticalCSDatumCode {
+	public enum VerticalCSDatumCode {
 		Undefined = 0
 	}
 }
