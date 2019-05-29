@@ -82,6 +82,8 @@ namespace GeoTiff2Raw {
 
 				double minVal = inImage.GetField(TiffTag.SMINSAMPLEVALUE)[0].ToDouble();
 				double maxVal = inImage.GetField(TiffTag.SMAXSAMPLEVALUE)[0].ToDouble();
+				//double minVal = 0.0;
+				//double maxVal = 8850.0;
 				double maxScale = (ushort.MaxValue / (maxVal - minVal));
 
 				RasterGrayF32 rasterF32 = new RasterGrayF32((uint)width, (uint)height);
@@ -111,7 +113,7 @@ namespace GeoTiff2Raw {
 				double outWidth = Math.Pow(2.0, Math.Floor(Math.Log(width) / Math.Log(2.0))) + 1.0;
 				double outHeight = Math.Floor(height * (outWidth / width) + 0.5);
 
-				rasterF32 = rasterF32.Scaled((uint)outWidth, (uint)outHeight);
+				//rasterF32 = rasterF32.Scaled((uint)outWidth, (uint)outHeight);
 
 				outHeight = Math.Min(outWidth, outHeight);
 
@@ -123,6 +125,7 @@ namespace GeoTiff2Raw {
 
 				using (var outFile = new FileStream(outputRawPath, FileMode.Create, FileAccess.Write)) {
 					var rasterBytes = rasterU16.ToByteArray();
+					//var rasterBytes = (new RasterGrayU8(rasterU16)).ToByteArray();
 					outFile.Write(rasterBytes, 0, rasterBytes.Length);
 				}
 

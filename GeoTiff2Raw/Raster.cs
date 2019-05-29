@@ -100,8 +100,11 @@ namespace GeoTiff2Raw {
 			if (t == typeof(int) || t == typeof(uint) || t == typeof(float)) {
 				return 4;
 			}
-			if (t == typeof(short) || t == typeof(ushort)) {
+			if (t == typeof(short) || t == typeof(ushort))  {
 				return 2;
+			}
+			if (t == typeof(byte) || t == typeof(sbyte)) {
+				return 1;
 			}
 			return 0;
 		}
@@ -246,4 +249,44 @@ namespace GeoTiff2Raw {
 							pixels[rowHi + xhi] * fyhi * fxhi + 0.5f);
 		}
 	}
+
+	public class RasterGrayU8 : Raster<byte> {
+		public RasterGrayU8() { }
+
+		public RasterGrayU8(uint _width, uint _height) {
+			Init(_width, _height);
+		}
+
+		public RasterGrayU8(Raster<ushort> src) {
+			Init(src.width, src.height);
+
+			for (uint i = 0; i < pixels.Length; i++) {
+				pixels[i] = (byte)(src.pixels[i] >> 8);
+			}
+		}
+
+		public RasterGrayU8(Raster<float> src, double minVal, double maxScale) {
+			Init(src.width, src.height);
+
+			for (uint i = 0; i < pixels.Length; i++) {
+				pixels[i] = (byte)((src.pixels[i] - minVal) * maxScale + 0.5f);
+			}
+		}
+
+		public byte GetPixel(float x, float y) {
+			uint xlo = (uint)x;
+			uint xhi = xlo + 1;
+			uint rowLo = (uint)y * width;
+			uint rowHi = rowLo + width;
+			float fxhi = x - xlo;
+			float fxlo = 1.0f - fxhi;
+			float fyhi = y - (uint)y;
+			float fylo = 1.0f - fyhi;
+			return (byte)(pixels[rowLo + xlo] * fylo * fxlo +
+							pixels[rowLo + xhi] * fylo * fxhi +
+							pixels[rowHi + xlo] * fyhi * fxlo +
+							pixels[rowHi + xhi] * fyhi * fxhi + 0.5f);
+		}
+	}
+
 }
