@@ -106,7 +106,7 @@ namespace GeoTiff2Raw {
 
 				for (int i = 0; i < rasterF32.pixels.Length; i++) {
 					if ( rasterF32.pixels[i] == noDataValue ) {
-						rasterF32.pixels[i] = 0.0f;
+						rasterF32.pixels[i] = (float)minVal; // 0.0f;
 					}
 				}
 
@@ -117,15 +117,15 @@ namespace GeoTiff2Raw {
 
 				outHeight = Math.Min(outWidth, outHeight);
 
-				//RasterGrayU16 rasterU16 = new RasterGrayU16(rasterF32, minVal, maxScale);
-				RasterGrayU16 rasterU16 = new RasterGrayU16(rasterF32.Clone((uint)(rasterF32.width - outWidth), (uint)(rasterF32.height - outHeight), (uint)outWidth, (uint)outHeight), minVal, maxScale);
+				//var rasterU16 = RasterUtil.Convert(new Raster<ushort>(), rasterF32, (float)-minVal, (float)maxScale);
+				var rasterU16 = RasterUtil.Convert(new Raster<ushort>(), rasterF32.Clone((uint)(rasterF32.width - outWidth), (uint)(rasterF32.height - outHeight), (uint)outWidth, (uint)outHeight), (float)-minVal, (float)maxScale);
 
 				rasterF32.Init(0, 0);
 				rasterF32 = null;
 
 				using (var outFile = new FileStream(outputRawPath, FileMode.Create, FileAccess.Write)) {
 					var rasterBytes = rasterU16.ToByteArray();
-					//var rasterBytes = (new RasterGrayU8(rasterU16)).ToByteArray();
+					//var rasterBytes = RasterUtil.Convert(new Raster<byte>(), rasterU16).ToByteArray();
 					outFile.Write(rasterBytes, 0, rasterBytes.Length);
 				}
 
