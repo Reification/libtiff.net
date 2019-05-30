@@ -159,6 +159,31 @@ namespace GeoTiff2Raw {
 			return null;
 		}
 
+		public static TiePoint[] GetModelTiePoints(Tiff tif) {
+			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTIEPOINTTAG);
+			if (v?.Length == 2 && v[0].ToInt() > 0 && (v[0].ToInt() % 6) == 0) {
+				double[] arr = v[1].ToDoubleArray();
+				TiePoint[] pts = new TiePoint[arr.Length / 6];
+				for (int i = 0, j = 0; i < pts.Length; i += 1, j += 6) {
+					pts[i].rasterPt = new VectorD3 { x = arr[j + 0], y = arr[j + 1], z = arr[j + 2] };
+					pts[i].modelPt = new VectorD3 { x = arr[j + 3], y = arr[j + 4], z = arr[j + 5] };
+				}
+				return pts;
+			}
+			return null;
+		}
+
+		public static VectorD3 GetModelPixelScale(Tiff tif) {
+			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELPIXELSCALETAG);
+			if (v?.Length == 2 && v[0].ToInt() == 3) {
+				double[] arr = v[1].ToDoubleArray();
+				var val = new VectorD3 { x = arr[0], y = arr[1], z = arr[2] };
+				return val;
+			}
+			return new VectorD3 { x = 0, y = 0, z = 0 };
+		}
+
+
 		GeoKeyDir() {
 			rawHeader.keyDirVersion = 0;
 			rawHeader.keyMajorRevision = 0;

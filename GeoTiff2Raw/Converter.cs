@@ -17,30 +17,6 @@ namespace GeoTiff2Raw {
 			return false;
 		}
 
-		static VectorD3 getModelPixelScale(Tiff tif) {
-			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELPIXELSCALETAG);
-			if (v?.Length == 2 && v[0].ToInt() == 3) {
-				double[] arr = v[1].ToDoubleArray();
-				var val = new VectorD3 { x = arr[0], y = arr[1], z = arr[2] };
-				return val;
-			}
-			return new VectorD3 { x = 0, y = 0, z = 0 };
-		}
-
-		static TiePoint[] getModelTiePoints(Tiff tif) {
-			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTIEPOINTTAG);
-			if (v?.Length == 2 && v[0].ToInt() > 0 && (v[0].ToInt() % 6) == 0) {
-				double[] arr = v[1].ToDoubleArray();
-				TiePoint[] pts = new TiePoint[arr.Length / 6];
-				for (int i = 0, j = 0; i < pts.Length; i += 1, j += 6) {
-					pts[i].rasterPt = new VectorD3 { x = arr[j + 0], y = arr[j + 1], z = arr[j + 2] };
-					pts[i].modelPt = new VectorD3 { x = arr[j + 3], y = arr[j + 4], z = arr[j + 5] };
-				}
-				return pts;
-			}
-			return null;
-		}
-
 		static double[] getModelTransformation(Tiff tif) {
 			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTRANSFORMATIONTAG);
 			if (v?.Length == 2 && v[0].ToInt() == 16) {
@@ -69,26 +45,25 @@ namespace GeoTiff2Raw {
 				int height = inImage.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
 				int rowsPerStrip = inImage.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
 
-				bool isByteSwapped = inImage.IsByteSwapped();
-
-				if (rowsPerStrip != 1) {
-					Util.Error("Images must be stripped with 1 row per strip. {0} rows per strip not supported.", rowsPerStrip);
+				if ( width <= 0 || height <= 0 ) {
+					Util.Error("Invalid image size {0}x{1}", width, height);
 				}
 
-				VectorD3 scale = getModelPixelScale(inImage);
-				TiePoint[] tiePoints = getModelTiePoints(inImage);
+				if (rowsPerStrip != 1) {
+					Util.Error("Invalid image rows per strip {0}. Only 1 row per strip supported.", rowsPerStrip);
+				}
+
+				VectorD3 scale = GeoKeyDir.GetModelPixelScale(inImage);
+				TiePoint[] tiePoints = GeoKeyDir.GetModelTiePoints(inImage);
 				GeoKeyDir geoKeys = GeoKeyDir.GetGeoKeyDir(inImage);
-				float noDataValue = (float)getGdalNoData(inImage);
 
-				double minVal = inImage.GetField(TiffTag.SMINSAMPLEVALUE)[0].ToDouble();
-				double maxVal = inImage.GetField(TiffTag.SMAXSAMPLEVALUE)[0].ToDouble();
-				//double minVal = 0.0;
-				//double maxVal = 8850.0;
-				double maxScale = (ushort.MaxValue / (maxVal - minVal));
+				float minVal = (float)inImage.GetField(TiffTag.SMINSAMPLEVALUE)[0].ToDouble();
+				float maxVal = (float)inImage.GetField(TiffTag.SMAXSAMPLEVALUE)[0].ToDouble();
 
-				RasterGrayF32 rasterF32 = new RasterGrayF32((uint)width, (uint)height);
-
+				var rasterF32 = new Raster<float>((uint)width, (uint)height);
 				var srcByteRow = new byte[width * sizeof(float)];
+
+				bool isByteSwapped = inImage.IsByteSwapped();
 
 				for (int y = 0, dstRowIdx = 0; y < height; y++, dstRowIdx += width) {
 					int readCount = inImage.ReadEncodedStrip(y, srcByteRow, 0, -1);
@@ -101,35 +76,59 @@ namespace GeoTiff2Raw {
 						Util.ByteSwap4(srcByteRow);
 					}
 
-					rasterF32.SetRow((uint)y, srcByteRow);
+					rasterF32.SetRawRow((uint)y, srcByteRow);
 				}
 
-				for (int i = 0; i < rasterF32.pixels.Length; i++) {
-					if ( rasterF32.pixels[i] == noDataValue ) {
-						rasterF32.pixels[i] = (float)minVal; // 0.0f;
+				float noDataValue = (float)getGdalNoData(inImage);
+
+				{
+					int noDataCount = 0;
+					for (int i = 0; i < rasterF32.pixels.Length; i++) {
+						if (rasterF32.pixels[i] == noDataValue) {
+							rasterF32.pixels[i] = (float)minVal;
+							noDataCount++;
+						}
+					}
+					if ( noDataCount > 0 ) {
+						Util.Warn("Replaced {0} no-data pixels with minValue {1}", noDataCount, minVal);
 					}
 				}
 
-				double outWidth = Math.Pow(2.0, Math.Floor(Math.Log(width) / Math.Log(2.0))) + 1.0;
-				double outHeight = Math.Floor(height * (outWidth / width) + 0.5);
+				uint outWidth = (uint)Math.Pow(2.0, Math.Floor(Math.Log(width - 1) / Math.Log(2.0))) + 1;
+				uint outHeight = (uint)Math.Pow(2.0, Math.Floor(Math.Log(height - 1) / Math.Log(2.0))) + 1;
 
-				//rasterF32 = rasterF32.Scaled((uint)outWidth, (uint)outHeight);
+				// we don't want to mess with scaling - resolution at 1m/pix should be preserved.
+				//rasterF32 = rasterF32.Scaled(outWidth, outHeight);
 
-				outHeight = Math.Min(outWidth, outHeight);
+				// let's just make it square for now.
+				outWidth = outHeight = Math.Min(outWidth, outHeight);
 
-				//var rasterU16 = RasterUtil.Convert(new Raster<ushort>(), rasterF32, (float)-minVal, (float)maxScale);
-				var rasterU16 = RasterUtil.Convert(new Raster<ushort>(), rasterF32.Clone((uint)(rasterF32.width - outWidth), (uint)(rasterF32.height - outHeight), (uint)outWidth, (uint)outHeight), (float)-minVal, (float)maxScale);
+				// crop to bottom right (for now)
+				rasterF32 = rasterF32.Clone((uint)width - outWidth, (uint)height - outHeight, outWidth, outHeight);
 
-				rasterF32.Init(0, 0);
-				rasterF32 = null;
+				minVal = float.MaxValue;
+				maxVal = float.MinValue;
+				for (int i = 0; i < rasterF32.pixels.Length; i++) {
+					var p = rasterF32.pixels[i];
+					minVal = Math.Min(minVal, p);
+					maxVal = Math.Max(maxVal, p);
+				}
+
+				float toU16Translation = (float)-minVal;
+				// incoming heights are in meters. assuming 20cm resolution for now.
+				float toU16Scale = (float)5.0f;
+
+				var rasterOut = rasterF32.Convert(new Raster<ushort>(), toU16Translation, toU16Scale);
+
+				// flip, rotate, whatever we need to orient properly.
+				//rasterOut.YFlip(); rasterOut.Rotate(RasterRotation.CCW_90);
 
 				using (var outFile = new FileStream(outputRawPath, FileMode.Create, FileAccess.Write)) {
-					var rasterBytes = rasterU16.ToByteArray();
-					//var rasterBytes = RasterUtil.Convert(new Raster<byte>(), rasterU16).ToByteArray();
+					var rasterBytes = rasterOut.ToByteArray();
 					outFile.Write(rasterBytes, 0, rasterBytes.Length);
 				}
 
-				Util.Log("Wrote {0}x{1} u16 raw image to {2}", rasterU16.width, rasterU16.height, outputRawPath);
+				Util.Log("Wrote {0}x{1} {2}bpp raw image to {3}", rasterOut.width, rasterOut.height, rasterOut.bitsPerPixel, outputRawPath);
 			}
 		}
 	}
