@@ -70,7 +70,7 @@
 
 	public enum RasterType {
 		Undefined = 0,
-		PixelIsArea = 0,
+		PixelIsArea = 1,
 		PixelIsPoint = 2
 	}
 
@@ -491,7 +491,7 @@
 		PM_Stockholm = 8911
 	}
 
-	public enum ProjectedCSTypeCode {
+	public enum ProjectedCSType {
 		Undefined = 0,
 		PCS_Adindan_UTM_zone_37N = 20137,
 		PCS_Adindan_UTM_zone_38N = 20138,
@@ -1816,7 +1816,7 @@
 		CT_SouthOrientedGaussConformal = CT_TransvMercator_SouthOriented
 	}
 
-	public enum VerticalCSTypeCode {
+	public enum VerticalCSType {
 		Undefined = 0,
 		VertCS_Airy_1830_ellipsoid = 5001,
 		VertCS_Airy_Modified_1849_ellipsoid = 5002,

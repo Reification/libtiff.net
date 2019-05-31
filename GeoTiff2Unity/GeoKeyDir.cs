@@ -8,11 +8,29 @@ namespace GeoTiff2Unity {
 		public double x;
 		public double y;
 		public double z;
+
+		public static readonly VectorD3 zero = new VectorD3 { x = 0, y = 0, z = 0 };
+
+		public bool Eq(VectorD3 b) {
+			return x == b.x && y == b.y && z == b.z;
+		}
+
+		public override string ToString() {
+			return string.Format("({0}, {1}, {2})", x, y, z);
+		}
 	}
 
 	public struct TiePoint {
 		public VectorD3 rasterPt;
 		public VectorD3 modelPt;
+
+		public bool Eq(TiePoint b) {
+			return rasterPt.Eq(b.rasterPt) && modelPt.Eq(b.modelPt);
+		}
+
+		public override string ToString() {
+			return string.Format("rasterPt: {0} modelPt: {1}", rasterPt, modelPt);
+		}
 	}
 
 	public struct GeoKeyDirRaw {
@@ -154,12 +172,12 @@ namespace GeoTiff2Unity {
 		public EllipsoidCode geogEllipsoid = EllipsoidCode.Undefined;
 		public AngularUnitCode geogAzimuthUnit = AngularUnitCode.Undefined;
 
-		public ProjectedCSTypeCode projectedCSType = ProjectedCSTypeCode.Undefined;
+		public ProjectedCSType projectedCSType = ProjectedCSType.Undefined;
 		public ProjectionCode projectionCode = ProjectionCode.Undefined;
 		public CoordTransformCode coordTransformCode = CoordTransformCode.Undefined;
 		public LinearUnitCode projLinearUnit = LinearUnitCode.Undefined;
 
-		public VerticalCSTypeCode verticalCSType = VerticalCSTypeCode.Undefined;
+		public VerticalCSType verticalCSType = VerticalCSType.Undefined;
 		public LinearUnitCode verticalLinearUnit = LinearUnitCode.Undefined;
 
 		public string gtCitation = "";
@@ -234,7 +252,7 @@ namespace GeoTiff2Unity {
 				Util.CheckEnumVal(geogAzimuthUnit);
 				break;
 			case GeoKey.ProjectedCSType:
-				projectedCSType = (ProjectedCSTypeCode)value;
+				projectedCSType = (ProjectedCSType)value;
 				Util.CheckEnumVal(projectedCSType);
 				break;
 			case GeoKey.Projection:
@@ -246,7 +264,7 @@ namespace GeoTiff2Unity {
 				Util.CheckEnumVal(coordTransformCode);
 				break;
 			case GeoKey.VerticalCSType:
-				verticalCSType = (VerticalCSTypeCode)value;
+				verticalCSType = (VerticalCSType)value;
 				Util.CheckEnumVal(verticalCSType);
 				break;
 			case GeoKey.VerticalUnits:

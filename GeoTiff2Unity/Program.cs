@@ -125,17 +125,17 @@ namespace GeoTiff2Unity {
 					usage("invalid argument \"\"");
 				}
 
-				if (cnv.inputFloatHeightTifPath == null) {
+				if (cnv.hmTiffInPath == null) {
 					if (Util.IsTiff(arg)) {
-						cnv.inputFloatHeightTifPath = arg;
+						cnv.hmTiffInPath = arg;
 						continue;
 					}
 					usage("Invalid 32 bit float height map input image {0}", arg);
 				}
 
-				if (cnv.inputRGBTifPath == null) {
+				if (cnv.rgbTiffInPath == null) {
 					if (Util.IsTiff(arg) || Util.IsJpg(arg)) {
-						cnv.inputRGBTifPath = arg;
+						cnv.rgbTiffInPath = arg;
 						continue;
 					}
 					usage("Invalid RGB input image {0}", arg);
@@ -160,19 +160,19 @@ namespace GeoTiff2Unity {
 				usage("unexpected argument {0}", arg);
 			}
 
-			if (	cnv.inputFloatHeightTifPath == null ||
-						cnv.inputRGBTifPath == null ||
+			if (	cnv.hmTiffInPath == null ||
+						cnv.rgbTiffInPath == null ||
 						cnv.outputRawHeightPath == null ||
 						cnv.outputRGBTifPath == null ) 
 			{
 				usage(args.Length > 0 ? "all inputs and outputs must be specified." : null);
 			}
 
-			if (!File.Exists(cnv.inputFloatHeightTifPath)) {
-				usage("{0} does not exist.", cnv.inputFloatHeightTifPath);
+			if (!File.Exists(cnv.hmTiffInPath)) {
+				usage("{0} does not exist.", cnv.hmTiffInPath);
 			}
-			if (!File.Exists(cnv.inputRGBTifPath)) {
-				usage("{0} does not exist.", cnv.inputRGBTifPath);
+			if (!File.Exists(cnv.rgbTiffInPath)) {
+				usage("{0} does not exist.", cnv.rgbTiffInPath);
 			}
 
 			{
