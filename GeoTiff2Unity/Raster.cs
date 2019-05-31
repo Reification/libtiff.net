@@ -149,6 +149,7 @@ namespace GeoTiff2Unity {
 		public uint width { get; private set; }
 		public uint height { get; private set; }
 		public uint pitch { get; private set; }
+		public uint sizeBytes { get { return pitch * height; } }
 
 		private void rotate90(bool ccw) {
 			uint newW = height;
@@ -182,16 +183,68 @@ namespace GeoTiff2Unity {
 		}
 	}
 
-	public struct ColorF32RGB {
+	public struct ColorF32 {
 		public float r;
 		public float g;
 		public float b;
+
+		public ColorU8 ToColorU8(float translation = 0.0f, float scale = byte.MaxValue) {
+			return new ColorU8 {
+				r = (byte)((r + translation) * scale),
+				g = (byte)((g + translation) * scale),
+				b = (byte)((b + translation) * scale)
+			};
+		}
+
+		public ColorU16 ToColorU16(float translation = 0.0f, float scale = ushort.MaxValue) {
+			return new ColorU16 {
+				r = (ushort)((r + translation) * scale),
+				g = (ushort)((g + translation) * scale),
+				b = (ushort)((b + translation) * scale)
+			};
+		}
 	}
 
-	public struct ColorU8RGB {
+	public struct ColorU8 {
 		public byte r;
 		public byte g;
 		public byte b;
+
+		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f/byte.MaxValue) {
+			return new ColorF32 {
+				r = (r + translation) * scale,
+				g = (g + translation) * scale,
+				b = (b + translation) * scale
+			};
+		}
+
+		public static readonly ColorU8 zero = new ColorU8 { r = 0, g = 0, b = 0 };
+	}
+
+	public struct ColorU16 {
+		public ushort r;
+		public ushort g;
+		public ushort b;
+
+		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / ushort.MaxValue) {
+			return new ColorF32 {
+				r = (r + translation) * scale,
+				g = (g + translation) * scale,
+				b = (b + translation) * scale
+			};
+		}
+
+		public ColorU8 ToColorU8() {
+			return new ColorU8 {
+				r = (byte)(r >> 8),
+				g = (byte)(g >> 8),
+				b = (byte)(b >> 8)
+			};
+		}
+
+		public ColorU8 divBy4U8() { return new ColorU8 { r = (byte)(r >> 2), g = (byte)(g >> 2), b = (byte)(b >> 2) }; }
+		public void accum(ColorU8 c) { r += c.r; g += c.g; b += c.b; }
+		public static readonly ColorU16 zero = new ColorU16 { r = 0, g = 0, b = 0 };
 	}
 
 	public static class RasterUtil {
@@ -221,18 +274,18 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		public static Raster<float> Convert(this Raster<byte> src, Raster<float> dst, float transation = 0.0f, float scale = 1.0f / byte.MaxValue) {
+		public static Raster<float> Convert(this Raster<byte> src, Raster<float> dst, float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
 			dst.Init(src.width, src.height);
 			for (int i = 0; i < dst.pixels.Length; i++) {
-				dst.pixels[i] = (src.pixels[i] + transation) * scale;
+				dst.pixels[i] = (src.pixels[i] + translation) * scale;
 			}
 			return dst;
 		}
 
-		public static Raster<float> Convert(this Raster<ushort> src, Raster<float> dst, float transation = 0.0f, float scale = 1.0f / ushort.MaxValue) {
+		public static Raster<float> Convert(this Raster<ushort> src, Raster<float> dst, float translation = 0.0f, float scale = 1.0f / ushort.MaxValue) {
 			dst.Init(src.width, src.height);
 			for (int i = 0; i < dst.pixels.Length; i++) {
-				dst.pixels[i] = (src.pixels[i] + transation) * scale;
+				dst.pixels[i] = (src.pixels[i] + translation) * scale;
 			}
 			return dst;
 		}
@@ -261,6 +314,22 @@ namespace GeoTiff2Unity {
 			return dst;
 		}
 
+		public static Raster<ColorF32> Convert(this Raster<ColorU8> src, Raster<ColorF32> dst, float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
+			dst.Init(src.width, src.height);
+			for (int i = 0; i < dst.pixels.Length; i++) {
+				dst.pixels[i] = src.pixels[i].ToColorF32(translation, scale);
+			}
+			return dst;
+		}
+
+		public static Raster<ColorU8> Convert(this Raster<ColorF32> src, Raster<ColorU8> dst, float translation = 0.0f, float scale = byte.MaxValue) {
+			dst.Init(src.width, src.height);
+			for (int i = 0; i < dst.pixels.Length; i++) {
+				dst.pixels[i] = src.pixels[i].ToColorU8(translation, scale);
+			}
+			return dst;
+		}
+
 		public static Raster<T2> Convert<T1, T2>(this Raster<T1> src, Raster<T2> dst, Func<T1, T2> convertPix) where T1 : struct where T2 : struct {
 			dst.Init(src.width, src.height);
 			for (uint i = 0; i < dst.pixels.Length; i++) {
@@ -285,7 +354,7 @@ namespace GeoTiff2Unity {
 						 img.pixels[rowHi + xhi] * fyhi * fxhi;
 		}
 
-		public static ColorF32RGB GetSubPixel(this Raster<ColorF32RGB> img, float x, float y) {
+		public static ColorF32 GetSubPixel(this Raster<ColorF32> img, float x, float y) {
 			uint xlo = (uint)x;
 			uint xhi = xlo + 1;
 			uint rowLo = (uint)y * img.width;
@@ -304,7 +373,7 @@ namespace GeoTiff2Unity {
 			var baf = fyhi * fxlo;
 			var bbf = fyhi * fxhi;
 
-			return new ColorF32RGB {
+			return new ColorF32 {
 				r = aa.r * aaf + ab.r * abf + ba.r * baf + bb.r * bbf,
 				g = aa.g * aaf + ab.g * abf + ba.g * baf + bb.g * bbf,
 				b = aa.b * aaf + ab.b * abf + ba.b * baf + bb.b * bbf
@@ -333,7 +402,7 @@ namespace GeoTiff2Unity {
 			return scaledDown(src, w, h);
 		}
 
-		public static Raster<ColorF32RGB> Scaled(this Raster<ColorF32RGB> src, uint w, uint h) {
+		public static Raster<ColorF32> Scaled(this Raster<ColorF32> src, uint w, uint h) {
 			if (w == src.width && h == src.height) {
 				return src;
 			}
@@ -353,6 +422,31 @@ namespace GeoTiff2Unity {
 			}
 
 			return scaledDown(src, w, h);
+		}
+
+		public static Raster<ColorU8> ScaledDown2to1(this Raster<ColorU8> src) {
+			var dst = new Raster<ColorU8>(src.width / 2, src.height / 2);
+			var accumRow = new ColorU16[dst.width];
+
+			for(uint i = 0; i < accumRow.Length; i++) {
+				accumRow[i] = ColorU16.zero;
+			}
+
+			for (uint dstR = 0, srcR = 0, endDstR = dst.width * dst.height; dstR < endDstR; dstR += dst.width) {
+				for (int i = 0; i < 2; i++) {
+					for (uint dstX = 0, srcX = 0; dstX < dst.width; dstX++, srcX += 2) {
+						accumRow[dstX].accum(src.pixels[srcR + srcX]);
+						accumRow[dstX].accum(src.pixels[srcR + srcX + 1]);
+					}
+					srcR += src.width;
+				}
+				for (uint dstX = 0; dstX < dst.width; dstX++) {
+					dst.pixels[dstR + dstX] = accumRow[dstX].divBy4U8();
+					accumRow[dstX] = ColorU16.zero;
+				}
+			}
+
+			return dst;
 		}
 
 		private static Raster<float> scaledUp(Raster<float> src, uint w, uint h) {
@@ -417,7 +511,7 @@ namespace GeoTiff2Unity {
 			return dst;
 		}
 
-		private static Raster<ColorF32RGB> scaledUp(Raster<ColorF32RGB> src, uint w, uint h) {
+		private static Raster<ColorF32> scaledUp(Raster<ColorF32> src, uint w, uint h) {
 			while ((src.width << 1) < w && (src.height << 1) < h) {
 				src = scaledUp(src, src.width << 1, src.height << 1);
 			}
@@ -430,7 +524,7 @@ namespace GeoTiff2Unity {
 				src = scaledUp(src, src.width, src.height << 1);
 			}
 
-			var dst = new Raster<ColorF32RGB>(w, h);
+			var dst = new Raster<ColorF32>(w, h);
 
 			float srcYStep = (float)(src.height - 1) / (float)(h - 1);
 			float srcXStep = (float)(src.width - 1) / (float)(w - 1);
@@ -448,7 +542,7 @@ namespace GeoTiff2Unity {
 			return dst;
 		}
 
-		private static Raster<ColorF32RGB> scaledDown(Raster<ColorF32RGB> src, uint w, uint h) {
+		private static Raster<ColorF32> scaledDown(Raster<ColorF32> src, uint w, uint h) {
 			while ((src.width >> 1) > w && (src.height >> 1) > h) {
 				src = scaledDown(src, src.width >> 1, src.height >> 1);
 			}
@@ -461,7 +555,7 @@ namespace GeoTiff2Unity {
 				src = scaledDown(src, src.width, src.height >> 1);
 			}
 
-			var dst = new Raster<ColorF32RGB>(w, h);
+			var dst = new Raster<ColorF32>(w, h);
 
 			float srcYStep = (float)src.height / (float)h;
 			float srcXStep = (float)src.width / (float)w;

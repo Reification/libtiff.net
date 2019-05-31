@@ -47,7 +47,8 @@ namespace GeoTiff2Unity {
 
 			int hmWidth = inHeightMap.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
 			int hmHeight = inHeightMap.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
-			int hmRowsPerStrip = inHeightMap.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
+
+			int hmRowsPerStrip = inHeightMap.IsTiled() ? 0 : inHeightMap.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
 
 			if (hmWidth <= 0 || hmHeight <= 0) {
 				Util.Error("Invalid height map image size {0}x{1}", hmWidth, hmHeight);
@@ -73,27 +74,29 @@ namespace GeoTiff2Unity {
 			float hmToRawTranslation = 0;
 			float hmToRawScale = 0;
 
-			uint hmOutWidth = (uint)Math.Pow(2.0, Math.Floor(Math.Log(hmWidth - 1) / Math.Log(2.0))) + 1;
-			uint hmOutHeight = (uint)Math.Pow(2.0, Math.Floor(Math.Log(hmHeight - 1) / Math.Log(2.0))) + 1;
+			uint hmOutWidth = 0;
+			uint hmOutHeight = 0;
 			uint hmOutBPP = 0;
+
+			// HACK FOR NOW - Unity requires square textures?
+			hmOutWidth = hmOutHeight = (uint)Math.Min(hmWidth, hmHeight);
 
 			{
 				var hmRasterF32 = new Raster<float>((uint)hmWidth, (uint)hmHeight);
 				var hmRasterU16 = new Raster<ushort>();
+				bool isByteSwapped = inHeightMap.IsByteSwapped();
 
 				hmOutBPP = hmRasterU16.bitsPerPixel;
 
-				{
-					var hmPitch = hmWidth * sizeof(float);
-					var tmpStrip = new byte[hmPitch * hmRowsPerStrip];
-					bool isByteSwapped = inHeightMap.IsByteSwapped();
+				if (hmRowsPerStrip > 0) {
+					var tmpStrip = new byte[hmRasterF32.pitch * hmRowsPerStrip];
 
 					for (int y = 0, s = 0; y < hmHeight; y += hmRowsPerStrip, s++) {
 						int readByteCount = inHeightMap.ReadEncodedStrip(s, tmpStrip, 0, -1);
-						int readRowCount = readByteCount / hmPitch;
+						int readRowCount = readByteCount / (int)hmRasterF32.pitch;
 
 						if (	readRowCount == 0 || 
-									readRowCount * hmPitch != readByteCount || 
+									readRowCount * hmRasterF32.pitch != readByteCount || 
 									(readRowCount < hmRowsPerStrip && (y + hmRowsPerStrip < hmHeight)))
 						{
 							Util.Error("input height map corrupted.");
@@ -105,10 +108,24 @@ namespace GeoTiff2Unity {
 
 						hmRasterF32.SetRawRows((uint)y, tmpStrip, (uint)readRowCount);
 					}
+				} else {
+					int hmTileW = inHeightMap.GetField(TiffTag.TILEWIDTH)[0].ToInt();
+					int hmTileH = inHeightMap.GetField(TiffTag.TILELENGTH)[0].ToInt();
 
-					inHeightMap.Dispose();
-					inHeightMap = null;
+					if ( hmTileW < hmWidth || hmTileH < hmHeight ) {
+						Util.Error("Input heigh tmap is multi-tiled. Only stripped and single tile images supported.");
+					}
+
+					var tmpTile = new byte[hmRasterF32.sizeBytes];
+					inHeightMap.ReadEncodedTile(0, tmpTile, 0, tmpTile.Length);
+					if (isByteSwapped) {
+						Util.ByteSwap4(tmpTile);
+					}
+					hmRasterF32.SetRawRows(0, tmpTile, (uint)hmHeight);
 				}
+
+				inHeightMap.Dispose();
+				inHeightMap = null;
 
 				{
 					int noDataCount = 0;
@@ -124,7 +141,10 @@ namespace GeoTiff2Unity {
 				}
 
 				// crop to bottom right (for now)
-				hmRasterF32 = hmRasterF32.Clone((uint)hmWidth - hmOutWidth, (uint)hmHeight - hmOutHeight, hmOutWidth, hmOutHeight);
+				hmRasterF32 = hmRasterF32.Clone(	hmRasterF32.width - hmOutWidth,
+																					hmRasterF32.height - hmOutHeight,
+																					hmOutWidth,
+																					hmOutHeight );
 
 				hmMinVal = float.MaxValue;
 				hmMaxVal = float.MinValue;
@@ -139,12 +159,11 @@ namespace GeoTiff2Unity {
 
 				hmRasterF32.Convert(hmRasterU16, hmToRawTranslation, hmToRawScale);
 
-				// Unity's default heightmap orientation is upside-down WRT RGB textures.
+				// Unity's default height map orientation is upside down WRT RGB textures.
 				hmRasterU16.YFlip();
 
 				using (var outFile = new FileStream(outputRawHeightPath, FileMode.Create, FileAccess.Write)) {
-					var rasterBytes = hmRasterU16.ToByteArray();
-					outFile.Write(rasterBytes, 0, rasterBytes.Length);
+					outFile.Write(hmRasterU16.ToByteArray(), 0, (int)hmRasterU16.sizeBytes);
 				}
 			}
 
@@ -159,7 +178,7 @@ namespace GeoTiff2Unity {
 				Util.Log("  Dimensions: {0}x{1} {2} bit pix", hmOutWidth, hmOutHeight, hmOutBPP);
 				Util.Log("  Pix value range: {1} ({0}->{1})", 0, (uint)((hmMaxVal + hmToRawTranslation) * hmToRawScale + 0.5f));
 				Util.Log("  Geo proj size: {0}x{1} {2}", projW, projH, hmGeoKeys.projLinearUnit);
-				Util.Log("  Geo vertical range: {0} ({1}->{2})", projMaxV - projMinV, projMinV, projMaxV, hmGeoKeys.verticalLinearUnit);
+				Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmGeoKeys.verticalLinearUnit);
 				Util.Log("");
 			}
 
@@ -188,7 +207,7 @@ namespace GeoTiff2Unity {
 			VectorD3 rgbScale = GeoKeyDir.GetModelPixelScale(inRGB);
 			TiePoint[] rgbTiePoints = GeoKeyDir.GetModelTiePoints(inRGB);
 			GeoKeyDir rgbGeoKeys = GeoKeyDir.GetGeoKeyDir(inRGB);
-			int rgbRowsPerStrip = inRGB.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
+			int rgbRowsPerStrip = inRGB.IsTiled() ? 0 : inRGB.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
 
 			if (rgbWidth <= 0 || rgbHeight <= 0) {
 				Util.Error("Invalid rgb image size {0}x{1}", rgbWidth, rgbHeight);
@@ -198,69 +217,89 @@ namespace GeoTiff2Unity {
 				Util.Error("Assymetric scaling of RGB image WRT height map.");
 			}
 
-			float hmToRGBScale = (float)rgbWidth/hmWidth;
-			uint rgbOutWidth = (uint)((hmOutWidth - 1) * hmToRGBScale + 0.5f);
-			uint rgbOutHeight = (uint)((hmOutHeight - 1) * hmToRGBScale + 0.5f);
-			uint rgbOutBPP = 0;
+			uint hmToRGBScale = (uint)(rgbWidth/hmWidth);
+			uint rgbOutWidth = hmOutWidth * hmToRGBScale;
+			uint rgbOutHeight = hmOutHeight * hmToRGBScale;
+			uint rgbOutBPP = 24;
+			var rgbOutCompression = Compression.LZW;
 
 			{
-				// multiply width by 3 - we're using bytes instead of RGB struct
-				var rgbRaster = new Raster<byte>((uint)rgbWidth * 3, (uint)rgbHeight);
+				var rgbRaster = new Raster<ColorU8>((uint)rgbWidth, (uint)rgbHeight);
 
-				rgbOutBPP = rgbRaster.bitsPerPixel * 3;
-
-				{
-					int rgbPitch = rgbWidth * 3;
-					var tmpStrip = new byte[rgbPitch * rgbRowsPerStrip];
+				if (rgbRowsPerStrip > 0) {
+					var tmpStrip = new byte[rgbRaster.pitch * rgbRowsPerStrip];
 
 					for (uint y = 0, s = 0 ; y < rgbHeight; y += (uint)rgbRowsPerStrip, s++) {
 						int readByteCount = inRGB.ReadEncodedStrip((int)s, tmpStrip, 0, -1);
-						int readRowCount = readByteCount / rgbPitch;
+						int readRowCount = (int)(readByteCount / rgbRaster.pitch);
 
 						if (readRowCount == 0 ||
-								readRowCount * rgbPitch != readByteCount ||
+								readRowCount * rgbRaster.pitch != readByteCount ||
 								(readRowCount < rgbRowsPerStrip && (y + rgbRowsPerStrip < rgbHeight))) {
 							Util.Error("input height map corrupted.");
 						}
 
-						rgbRaster.SetRows(y, tmpStrip, (uint)readRowCount);
+						rgbRaster.SetRawRows(y, tmpStrip, (uint)readRowCount);
+					}
+				} else {
+					int rgbTileW = inRGB.GetField(TiffTag.TILEWIDTH)[0].ToInt();
+					int rgbTileH = inRGB.GetField(TiffTag.TILELENGTH)[0].ToInt();
+
+					if (rgbTileW < rgbWidth || rgbTileH < rgbHeight) {
+						Util.Error("Input rgb image is multi-tiled. Only stripped and single tile images supported.");
 					}
 
-					inRGB.Dispose();
-					inRGB = null;
+					var tmpTile = new byte[rgbRaster.sizeBytes];
+					inRGB.ReadEncodedTile(0, tmpTile, 0, tmpTile.Length);
+					rgbRaster.SetRawRows(0, tmpTile, rgbRaster.height);
 				}
 
-				// crop to bottom right (for now) - the * 3 is because we're using a byte raster, not an RGB struct raster.
-				rgbRaster = rgbRaster.Clone(	(uint)(rgbWidth - rgbOutWidth) * 3,
-																			(uint)rgbHeight - rgbOutHeight,
-																			rgbOutWidth * 3,
+				inRGB.Dispose();
+				inRGB = null;
+
+				Util.Log( "Trimming RGB image to {0}x{1} to match height map.", rgbOutWidth, rgbOutHeight );
+
+				rgbRaster = rgbRaster.Clone(	rgbRaster.width - rgbOutWidth,
+																			rgbRaster.height - rgbOutHeight,
+																			rgbOutWidth,
 																			rgbOutHeight );
 
+				// do the easy 2:1 reductions in integer space
+				while( Math.Max(rgbRaster.width, rgbRaster.height) >= (8192 * 2)) {
+					Util.Log("RGB image size {0}x{1} exceeds 8k max texture size by >= 2:1. Halving to {2}x{3}", 
+						rgbRaster.width, rgbRaster.height, rgbRaster.width/2, rgbRaster.height/2);
+					rgbRaster = rgbRaster.ScaledDown2to1();
+				}
+
+				// do the last fractional scaling down in float space
+				if (Math.Max(rgbRaster.width, rgbRaster.height) > 8192) {
+					double scaleDown = 8192.0 / Math.Max(rgbRaster.width, rgbRaster.height);
+					uint scaleDownW = (uint)(scaleDown * rgbRaster.width);
+					uint scaleDownH = (uint)(scaleDown * rgbRaster.height);
+					Util.Log("RGB image size {0}x{1} exceeds 8k max texture size. Scaling to {0}x{1}", scaleDownW, scaleDownH);
+					var rgbRasterF32 = rgbRaster.Convert(new Raster<ColorF32>()).Scaled(scaleDownW, scaleDownH);
+					rgbRasterF32.Convert(rgbRaster);
+				}
+
+				rgbScale.x *= (double)rgbOutWidth/rgbRaster.width;
+				rgbScale.y *= (double)rgbOutHeight/rgbRaster.height;
+				rgbOutWidth = rgbRaster.width;
+				rgbOutHeight = rgbRaster.height;
+
 				using (Tiff outRGB = Tiff.Open(outputRGBTifPath, "w")) {
-					const Compression comprLossless = Compression.LZW;
-					const Compression comprLossy = Compression.JP2000;
-
-					Compression rgbOutCompression = Util.IsJpg(outputRGBTifPath) ? comprLossy : comprLossless;
-					int rgbOutRowsPerStrip = (rgbOutCompression == comprLossy) ? 1024 : 32;
-
-					outRGB.SetField(TiffTag.IMAGEWIDTH, rgbOutWidth);
-					outRGB.SetField(TiffTag.IMAGELENGTH, rgbOutHeight);
+					outRGB.SetField(TiffTag.IMAGEWIDTH, (int)rgbRaster.width);
+					outRGB.SetField(TiffTag.IMAGELENGTH, (int)rgbRaster.height);
 					outRGB.SetField(TiffTag.BITSPERSAMPLE, 8);
 					outRGB.SetField(TiffTag.SAMPLESPERPIXEL, 3);
 					outRGB.SetField(TiffTag.SAMPLEFORMAT, SampleFormat.UINT);
-					outRGB.SetField(TiffTag.ROWSPERSTRIP, rgbOutRowsPerStrip);
-					outRGB.SetField(TiffTag.COMPRESSION, rgbOutCompression);
 					outRGB.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
 					outRGB.SetField(TiffTag.ORIENTATION, Orientation.TOPLEFT);
 					outRGB.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
+					outRGB.SetField(TiffTag.COMPRESSION, rgbOutCompression);
+					outRGB.SetField(TiffTag.TILEWIDTH, (int)rgbRaster.width);
+					outRGB.SetField(TiffTag.TILELENGTH, (int)rgbRaster.height);
 
-					uint rgbOutPitch = rgbOutWidth * 3;
-					var tmpStrip = new byte[rgbOutPitch * rgbOutRowsPerStrip];
-					for (uint y = 0, s = 0; y < rgbOutHeight; y += (uint)rgbOutRowsPerStrip, s++) {
-						uint rowsLeft = Math.Min((uint)rgbOutRowsPerStrip, (uint)rgbOutHeight - y);
-						rgbRaster.GetRows(y, tmpStrip, rowsLeft);
-						outRGB.WriteEncodedStrip((int)s, tmpStrip, (int)(rowsLeft * rgbOutPitch));
-					}
+					outRGB.WriteEncodedTile(0, rgbRaster.ToByteArray(), (int)rgbRaster.sizeBytes);
 				}
 			}
 
@@ -270,7 +309,8 @@ namespace GeoTiff2Unity {
 
 				Util.Log("");
 				Util.Log("Output RGB Image: {0}", outputRGBTifPath);
-				Util.Log("  Dimensions: {0}x{1} pix {2} bpp", rgbOutWidth, rgbOutHeight, rgbOutBPP);
+				Util.Log("  Dimensions: {0}x{1} {2} bit pix", rgbOutWidth, rgbOutHeight, rgbOutBPP);
+				Util.Log("  Compression: {0}", rgbOutCompression);
 				Util.Log("  Geo proj size: {0}x{1} {2}", projW, projH, hmGeoKeys.projLinearUnit);
 				Util.Log("");
 			}
