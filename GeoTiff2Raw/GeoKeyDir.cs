@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 using BitMiracle.LibTiff.Classic;
 
-namespace GeoTiff2Raw {
+namespace GeoTiff2Unity {
 	public static class Util {
 		public static void Log(string message, params Object[] args) {
 			Console.WriteLine(string.Format(message, args));

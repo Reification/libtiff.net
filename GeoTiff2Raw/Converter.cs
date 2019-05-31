@@ -2,10 +2,13 @@
 using System.IO;
 using BitMiracle.LibTiff.Classic;
 
-namespace GeoTiff2Raw {
+namespace GeoTiff2Unity {
 	public class Converter {
-		public string inputTiffPath = null;
-		public string outputRawPath = null;
+
+		public string inputFloatHeightTifPath = null;
+		public string inputRGBTifPath = null;
+		public string outputRawHeightPath = null;
+		public string outputRGBTifPath = null;
 
 		public bool Go() {
 			try {
@@ -36,7 +39,7 @@ namespace GeoTiff2Raw {
 		}
 
 		void go() {
-			using (Tiff inImage = Tiff.Open(inputTiffPath, "r")) {
+			using (Tiff inImage = Tiff.Open(inputFloatHeightTifPath, "r")) {
 				using (var stdout = Console.OpenStandardOutput()) {
 					inImage.PrintDirectory(stdout, TiffPrintFlags.NONE);
 				}
@@ -97,9 +100,6 @@ namespace GeoTiff2Raw {
 				uint outWidth = (uint)Math.Pow(2.0, Math.Floor(Math.Log(width - 1) / Math.Log(2.0))) + 1;
 				uint outHeight = (uint)Math.Pow(2.0, Math.Floor(Math.Log(height - 1) / Math.Log(2.0))) + 1;
 
-				// we don't want to mess with scaling - resolution at 1m/pix should be preserved.
-				//rasterF32 = rasterF32.Scaled(outWidth, outHeight);
-
 				// let's just make it square for now.
 				outWidth = outHeight = Math.Min(outWidth, outHeight);
 
@@ -114,21 +114,37 @@ namespace GeoTiff2Raw {
 					maxVal = Math.Max(maxVal, p);
 				}
 
-				float toU16Translation = (float)-minVal;
-				// incoming heights are in meters. assuming 20cm resolution for now.
-				float toU16Scale = (float)5.0f;
+				var rawHeightMap = new Raster<ushort>();
 
-				var rasterOut = rasterF32.Convert(new Raster<ushort>(), toU16Translation, toU16Scale);
+				// do this if we want to map used range across the entire value range of the target type.
+				// requires that we pay attention to the max value comment in the output for plugging in
+				// to unity when importing raw heightmap.
+				float toRawTranslation = (float)-minVal;
+				float toRawScale = (float)((Math.Pow(2.0, rawHeightMap.bitsPerPixel) - 1) / (maxVal + toRawTranslation));
 
-				// flip, rotate, whatever we need to orient properly.
-				//rasterOut.YFlip(); rasterOut.Rotate(RasterRotation.CCW_90);
+				rasterF32.Convert(rawHeightMap, toRawTranslation, toRawScale);
+				rasterF32 = null;
 
-				using (var outFile = new FileStream(outputRawPath, FileMode.Create, FileAccess.Write)) {
-					var rasterBytes = rasterOut.ToByteArray();
+				// Unity's default heightmap orientation is upside-down WRT RGB textures.
+				rawHeightMap.YFlip();
+
+				using (var outFile = new FileStream(outputRawHeightPath, FileMode.Create, FileAccess.Write)) {
+					var rasterBytes = rawHeightMap.ToByteArray();
 					outFile.Write(rasterBytes, 0, rasterBytes.Length);
 				}
 
-				Util.Log("Wrote {0}x{1} {2}bpp raw image to {3}", rasterOut.width, rasterOut.height, rasterOut.bitsPerPixel, outputRawPath);
+				Util.Log("Ouput Raw Height Map: {0}", outputRawHeightPath);
+				Util.Log("  Size: {0}x{1} pix", rawHeightMap.width, rawHeightMap.height);
+
+				Util.Log("Wrote {0}x{1} {2} [{3} {4}] {5}bpp raw image with max sample value {6} to {7}", 
+					rawHeightMap.width, 
+					rawHeightMap.height, 
+					geoKeys.projLinearUnit,
+					(maxVal + toRawTranslation),
+					geoKeys.verticalLinearUnit,
+					rawHeightMap.bitsPerPixel,
+					(uint)((maxVal + toRawTranslation)*toRawScale + 0.5f),
+					outputRawHeightPath);
 			}
 		}
 	}

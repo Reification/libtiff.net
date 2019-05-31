@@ -1,4 +1,4 @@
-﻿namespace GeoTiff2Raw {
+﻿namespace GeoTiff2Unity {
 	public enum GeoTiffTag {
 		NONE = 0,
 		MODELPIXELSCALETAG = 33550,

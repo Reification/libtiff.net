@@ -2,7 +2,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace GeoTiff2Raw {
+namespace GeoTiff2Unity {
 	public enum RasterRotation {
 		CCW_90,
 		CCW_180,
@@ -251,6 +251,14 @@ namespace GeoTiff2Raw {
 			dst.Init(src.width, src.height);
 			for (uint i = 0; i < dst.pixels.Length; i++) {
 				dst.pixels[i] = (byte)(src.pixels[i] >> 8);
+			}
+			return dst;
+		}
+
+		public static Raster<T2> Convert<T1, T2>(this Raster<T1> src, Raster<T2> dst, Func<T1, T2> convertPix) where T1 : struct where T2 : struct {
+			dst.Init(src.width, src.height);
+			for (uint i = 0; i < dst.pixels.Length; i++) {
+				dst.pixels[i] = convertPix(src.pixels[i]);
 			}
 			return dst;
 		}
