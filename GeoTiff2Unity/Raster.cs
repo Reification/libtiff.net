@@ -65,37 +65,37 @@ namespace GeoTiff2Unity {
 			}
 		}
 
+		public void GetRows(uint y, T[] rows, uint rowCount) {
+			Array.Copy(pixels, (int)(y * width), rows, 0, (int)(width * rowCount));
+		}
+
+		public void SetRows(uint y, T[] rows, uint rowCount) {
+			Array.Copy(rows, 0, pixels, (int)(y * width), (int)(width * rowCount));
+		}
+
 		public void GetRow(uint y, T[] row) {
-			Array.Copy(pixels, (int)(y * width), row, 0, (int)width);
+			GetRows(y, row, 1);
 		}
 
 		public void SetRow(uint y, T[] row) {
-			Array.Copy(row, 0, pixels, (int)(y * width), (int)width);
+			SetRows(y, row, 1);
 		}
 
-		public void GetRowSegment(uint y, uint x, uint pixCount, T[] segment) {
-			Array.Copy(pixels, (int)(y * width + x), segment, 0, (int)pixCount);
-		}
-
-		public void SetRowSegment(uint y, uint x, uint pixCount, T[] segment) {
-			Array.Copy(segment, 0, pixels, (int)(y * width + x), (int)pixCount);
-		}
-
-		public void GetRawRow(uint y, byte[] row) {
+		public void GetRawRows(uint y, byte[] rows, uint rowCount) {
 			if (typeof(T).IsPrimitive) {
-				Buffer.BlockCopy(pixels, (int)(y * pitch), row, 0, (int)pitch);
+				Buffer.BlockCopy(pixels, (int)(y * pitch), rows, 0, (int)(pitch * rowCount));
 			} else {
-				var trow = new T[width];
-				GetRow(y, trow);
-				Array.Copy(RasterUtil.StructArrayToByteArray(trow), 0, row, 0, (int)pitch);
+				var trows = new T[width * rowCount];
+				GetRows(y, trows, rowCount);
+				Array.Copy(RasterUtil.StructArrayToByteArray(trows), 0, rows, 0, (int)(pitch * rowCount));
 			}
 		}
 
-		public void SetRawRow(uint y, byte[] row) {
+		public void SetRawRows(uint y, byte[] rows, uint rowCount) {
 			if (typeof(T).IsPrimitive) {
-				Buffer.BlockCopy(row, 0, pixels, (int)(y * pitch), (int)pitch);
+				Buffer.BlockCopy(rows, 0, pixels, (int)(y * pitch), (int)(pitch * rowCount));
 			} else {
-				SetRow(y, RasterUtil.ByteArrayToStructArray<T>(row));
+				SetRows(y, RasterUtil.ByteArrayToStructArray<T>(rows), rowCount);
 			}
 		}
 
@@ -186,6 +186,12 @@ namespace GeoTiff2Unity {
 		public float r;
 		public float g;
 		public float b;
+	}
+
+	public struct ColorU8RGB {
+		public byte r;
+		public byte g;
+		public byte b;
 	}
 
 	public static class RasterUtil {

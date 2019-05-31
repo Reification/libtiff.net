@@ -2,19 +2,53 @@
 using System.IO;
 
 namespace GeoTiff2Unity {
-	class Program {
-		static private string appName = "GeoTiff2Raw";
+	public static class Util {
+		public static void Log(string message, params Object[] args) {
+			Console.WriteLine(string.Format(message, args));
+		}
 
-		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-overwrite] <outputHeight.raw> <outputRGB.tif>",
-			"  <inputHeight.tif>: source 32 bit float height map image",
-			"  <inputRGB.tif>: source RGB texture matching height map",
-			"  -overwrite: if output image exists it will be overwritten. this is an error otherwise.",
-			"  <outputHeight.raw>: target raw heightmap for import into Unity",
-			"  <outputRGB.tif>: target RGB texture for import into Unity"
-		};
+		public static void Warn(string message, params Object[] args) {
+			Console.WriteLine(string.Format(message, args));
+		}
 
-		static bool isJpg(string a) {
+		public static void Error(string message, params Object[] args) {
+			throw new Exception(string.Format(message, args));
+		}
+
+		public static bool CheckEnumVal<E>(E v) {
+			if (!Enum.IsDefined(typeof(E), v)) {
+				Warn("Assigned to {0} unknown value {1}", typeof(E), v);
+				return false;
+			}
+			return true;
+		}
+
+		public static void ByteSwap2(byte[] arr) {
+			if ((arr.Length & 0x01) != 0) {
+				Util.Error("byteSwap2 array length {0} not a multiple of 2!", arr.Length);
+			}
+			for (int b = 0; b < arr.Length; b += 2) {
+				byte t = arr[b + 0];
+				arr[b + 0] = arr[b + 1];
+				arr[b + 1] = t;
+			}
+		}
+
+		public static void ByteSwap4(byte[] arr) {
+			if ((arr.Length & 0x03) != 0) {
+				Util.Error("byteSwap4 array length {0} not a multiple of 4!", arr.Length);
+			}
+			for (int b = 0; b < arr.Length; b += 4) {
+				byte t = arr[b + 0];
+				arr[b + 0] = arr[b + 3];
+				arr[b + 3] = t;
+				t = arr[b + 1];
+				arr[b + 1] = arr[b + 2];
+				arr[b + 2] = t;
+			}
+		}
+
+		public static bool IsJpg(string a) {
 			switch (a.ToLower().Substring(a.LastIndexOf('.') + 1)) {
 			case "jpg":
 			case "jpeg":
@@ -27,7 +61,7 @@ namespace GeoTiff2Unity {
 			return false;
 		}
 
-		static bool isTiff(string a) {
+		public static bool IsTiff(string a) {
 			switch (a.ToLower().Substring(a.LastIndexOf('.') + 1)) {
 			case "tif":
 			case "tiff":
@@ -40,7 +74,7 @@ namespace GeoTiff2Unity {
 			return false;
 		}
 
-		static bool isRaw(string a) {
+		public static bool IsRaw(string a) {
 			switch (a.ToLower().Substring(a.LastIndexOf('.') + 1)) {
 			case "raw":
 			case "bin":
@@ -48,6 +82,20 @@ namespace GeoTiff2Unity {
 			}
 			return false;
 		}
+
+	}
+
+	class Program {
+		static private string appName = "GeoTiff2Raw";
+
+		static private string[] usageText = {
+			appName + " <inputHeight.tif> <inputRGB.tif> [-overwrite] <outputHeight.raw> <outputRGB.tif>",
+			"  <inputHeight.tif>: source 32 bit float height map image",
+			"  <inputRGB.tif>: source RGB texture matching height map",
+			"  -overwrite: if output image exists it will be overwritten. this is an error otherwise.",
+			"  <outputHeight.raw>: target raw heightmap for import into Unity",
+			"  <outputRGB.tif>: target RGB texture for import into Unity"
+		};
 
 		static void Main(string[] args) {
 			Converter cnv = new Converter();
@@ -78,7 +126,7 @@ namespace GeoTiff2Unity {
 				}
 
 				if (cnv.inputFloatHeightTifPath == null) {
-					if (isTiff(arg)) {
+					if (Util.IsTiff(arg)) {
 						cnv.inputFloatHeightTifPath = arg;
 						continue;
 					}
@@ -86,7 +134,7 @@ namespace GeoTiff2Unity {
 				}
 
 				if (cnv.inputRGBTifPath == null) {
-					if (isTiff(arg) || isJpg(arg)) {
+					if (Util.IsTiff(arg) || Util.IsJpg(arg)) {
 						cnv.inputRGBTifPath = arg;
 						continue;
 					}
@@ -94,7 +142,7 @@ namespace GeoTiff2Unity {
 				}
 
 				if (cnv.outputRawHeightPath == null) {
-					if (isRaw(arg)) {
+					if (Util.IsRaw(arg)) {
 						cnv.outputRawHeightPath = arg;
 						continue;
 					}
@@ -102,7 +150,7 @@ namespace GeoTiff2Unity {
 				}
 
 				if (cnv.outputRGBTifPath == null) {
-					if (isTiff(arg) || isJpg(arg)) {
+					if (Util.IsTiff(arg) || Util.IsJpg(arg)) {
 						cnv.outputRGBTifPath = arg;
 						continue;
 					}

@@ -4,53 +4,6 @@ using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
 
 namespace GeoTiff2Unity {
-	public static class Util {
-		public static void Log(string message, params Object[] args) {
-			Console.WriteLine(string.Format(message, args));
-		}
-
-		public static void Warn(string message, params Object[] args) {
-			Console.WriteLine(string.Format(message, args));
-		}
-
-		public static void Error(string message, params Object[] args) {
-			throw new Exception(string.Format(message, args));
-		}
-
-		public static bool CheckEnumVal<E>(E v) {
-			if (!Enum.IsDefined(typeof(E), v)) {
-				Warn("Assigned to {0} unknown value {1}", typeof(E), v);
-				return false;
-			}
-			return true;
-		}
-
-		public static void ByteSwap2(byte[] arr) {
-			if ((arr.Length & 0x01) != 0) {
-				Util.Error("byteSwap2 array length {0} not a multiple of 2!", arr.Length);
-			}
-			for (int b = 0; b < arr.Length; b += 2) {
-				byte t = arr[b + 0];
-				arr[b + 0] = arr[b + 1];
-				arr[b + 1] = t;
-			}
-		}
-
-		public static void ByteSwap4(byte[] arr) {
-			if ((arr.Length & 0x03) != 0) {
-				Util.Error("byteSwap4 array length {0} not a multiple of 4!", arr.Length);
-			}
-			for (int b = 0; b < arr.Length; b += 4) {
-				byte t = arr[b + 0];
-				arr[b + 0] = arr[b + 3];
-				arr[b + 3] = t;
-				t = arr[b + 1];
-				arr[b + 1] = arr[b + 2];
-				arr[b + 2] = t;
-			}
-		}
-	}
-
 	public struct VectorD3 {
 		public double x;
 		public double y;
@@ -216,11 +169,12 @@ namespace GeoTiff2Unity {
 
 		public double geogPrimeMeridianLon = -1.0;
 		public double geogLinearUnitSize = 0.0;
-		public double geogAngularUnitsSize = 0.0;
+		public double geogAngularUnitSize = 0.0;
 		public double geogSemiMajorAxis = -1.0;
 		public double geogSemiMinorAxis = -1.0;
 		public double geogInvFlattening = -1.0;
 		public double projLinearUnitSize = 0.0;
+
 		public double projStdParallel1 = -1.0;
 		public double projStdParallel2 = -1.0;
 		public double projNatOriginLon = -1.0;
@@ -343,7 +297,7 @@ namespace GeoTiff2Unity {
 				geogLinearUnitSize = value;
 				break;
 			case GeoKey.GeogAngularUnitSize:
-				geogAngularUnitsSize = value;
+				geogAngularUnitSize = value;
 				break;
 			case GeoKey.GeogSemiMajorAxis:
 				geogSemiMajorAxis = value;
