@@ -259,7 +259,7 @@ namespace GeoTiff2Unity {
 					for (uint y = 0, s = 0; y < rgbOutHeight; y += (uint)rgbOutRowsPerStrip, s++) {
 						uint rowsLeft = Math.Min((uint)rgbOutRowsPerStrip, (uint)rgbOutHeight - y);
 						rgbRaster.GetRows(y, tmpStrip, rowsLeft);
-						outRGB.WriteEncodedStrip((int)y, tmpStrip, (int)(rowsLeft * rgbOutPitch));
+						outRGB.WriteEncodedStrip((int)s, tmpStrip, (int)(rowsLeft * rgbOutPitch));
 					}
 				}
 			}
