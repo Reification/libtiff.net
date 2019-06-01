@@ -15,9 +15,9 @@ namespace GeoTiff2Unity {
 			throw new Exception(string.Format(message, args));
 		}
 
-		public static bool CheckEnumVal<E>(E v) {
+		public static bool CheckEnumVal<E>(E v) where E : struct {
 			if (!Enum.IsDefined(typeof(E), v)) {
-				Warn("Assigned to {0} unknown value {1}", typeof(E), v);
+				Warn("Assigned to {0} unknown value {1}", typeof(E).Name, v);
 				return false;
 			}
 			return true;

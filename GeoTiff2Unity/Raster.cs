@@ -151,6 +151,7 @@ namespace GeoTiff2Unity {
 		public uint pitch { get; private set; }
 
 		public uint sizeBytes { get { return pitch * height; } }
+		public uint sizePix { get { return width * height; } }
 
 		private void rotate90(bool ccw) {
 			uint newW = height;
@@ -204,6 +205,8 @@ namespace GeoTiff2Unity {
 				b = (ushort)((b + translation) * scale)
 			};
 		}
+
+		public static readonly ColorF32 zero = new ColorF32 { r = 0, g = 0, b = 0 };
 	}
 
 	public struct ColorU8 {
@@ -245,6 +248,7 @@ namespace GeoTiff2Unity {
 
 		public ColorU8 divBy4U8() { return new ColorU8 { r = (byte)(r >> 2), g = (byte)(g >> 2), b = (byte)(b >> 2) }; }
 		public void accum(ColorU8 c) { r += c.r; g += c.g; b += c.b; }
+
 		public static readonly ColorU16 zero = new ColorU16 { r = 0, g = 0, b = 0 };
 	}
 
@@ -349,10 +353,20 @@ namespace GeoTiff2Unity {
 			float fyhi = y - (uint)y;
 			float fylo = 1.0f - fyhi;
 
-			return img.pixels[rowLo + xlo] * fylo * fxlo +
-						 img.pixels[rowLo + xhi] * fylo * fxhi +
-						 img.pixels[rowHi + xlo] * fyhi * fxlo +
-						 img.pixels[rowHi + xhi] * fyhi * fxhi;
+			var aaf = fylo * fxlo;
+			var abf = fylo * fxhi;
+			var baf = fyhi * fxlo;
+			var bbf = fyhi * fxhi;
+
+			var aa = img.pixels[rowLo + xlo];
+			var ab = abf != 0 ? img.pixels[rowLo + xhi] : 0;
+			var ba = baf != 0 ? img.pixels[rowHi + xlo] : 0;
+			var bb = bbf != 0 ? img.pixels[rowHi + xhi] : 0;
+
+			return aa * aaf +
+						 ab * abf +
+						 ba * baf +
+						 bb * bbf;
 		}
 
 		public static ColorF32 GetSubPixel(this Raster<ColorF32> img, float x, float y) {
@@ -365,14 +379,15 @@ namespace GeoTiff2Unity {
 			float fyhi = y - (uint)y;
 			float fylo = 1.0f - fyhi;
 
-			var aa = img.pixels[rowLo + xlo];
-			var ab = img.pixels[rowLo + xhi];
-			var ba = img.pixels[rowHi + xlo];
-			var bb = img.pixels[rowHi + xhi];
 			var aaf = fylo * fxlo;
 			var abf = fylo * fxhi;
 			var baf = fyhi * fxlo;
 			var bbf = fyhi * fxhi;
+
+			var aa = img.pixels[rowLo + xlo];
+			var ab = abf != 0 ? img.pixels[rowLo + xhi] : ColorF32.zero;
+			var ba = baf != 0 ? img.pixels[rowHi + xlo] : ColorF32.zero;
+			var bb = bbf != 0 ? img.pixels[rowHi + xhi] : ColorF32.zero;
 
 			return new ColorF32 {
 				r = aa.r * aaf + ab.r * abf + ba.r * baf + bb.r * bbf,

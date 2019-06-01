@@ -8,10 +8,6 @@ namespace GeoTiff2Unity {
 		public double x;
 		public double y;
 
-		public bool Eq(VectorD2 b) {
-			return x == b.x && y == b.y;
-		}
-
 		public VectorD2 Truncate() {
 			return new VectorD2 { x = Math.Truncate(x), y = Math.Truncate(y) };
 		}
@@ -42,6 +38,22 @@ namespace GeoTiff2Unity {
 
 		public static implicit operator VectorD2(VectorD3 v3) {
 			return new VectorD2 { x = v3.x, y = v3.y };
+		}
+
+		public static bool operator ==(VectorD2 a, VectorD2 b) {
+			return a.x == b.x && a.y == b.y;
+		}
+
+		public static bool operator !=(VectorD2 a, VectorD2 b) {
+			return a.x != b.x || a.y != b.y;
+		}
+
+		public override bool Equals(object obj) {
+			return base.Equals(obj);
+		}
+
+		public override int GetHashCode() {
+			return base.GetHashCode();
 		}
 
 		public static VectorD2 operator *(VectorD2 v, double s) {
@@ -78,10 +90,6 @@ namespace GeoTiff2Unity {
 		public double y;
 		public double z;
 
-		public bool Eq(VectorD3 b) {
-			return x == b.x && y == b.y && z == b.z;
-		}
-
 		public VectorD3 Truncate() {
 			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
 		}
@@ -104,6 +112,22 @@ namespace GeoTiff2Unity {
 
 		public static implicit operator VectorD3(VectorD2 v2) {
 			return new VectorD3 { x = v2.x, y = v2.y, z = 0 };
+		}
+
+		public static bool operator ==(VectorD3 a, VectorD3 b) {
+			return a.x == b.x && a.y == b.y && a.z == b.z;
+		}
+
+		public static bool operator !=(VectorD3 a, VectorD3 b) {
+			return a.x != b.x || a.y != b.y || a.z != b.z;
+		}
+
+		public override bool Equals(object obj) {
+			return base.Equals(obj);
+		}
+
+		public override int GetHashCode() {
+			return base.GetHashCode();
 		}
 
 		public static VectorD3 operator *(VectorD3 v, double s) {
@@ -133,15 +157,19 @@ namespace GeoTiff2Unity {
 		public static VectorD3 operator /(VectorD3 v, VectorD3 v2) {
 			return new VectorD3 { x = v.x / v2.x, y = v.y / v2.y, z = (v.z == 0 && v2.z == 0) ? 0 : v.z / v2.z };
 		}
+
+		public static VectorD3 operator *(VectorD3 v, VectorD2 v2) {
+			return new VectorD3 { x = v.x * v2.x, y = v.y * v2.y, z = v.z };
+		}
+
+		public static VectorD3 operator /(VectorD3 v, VectorD2 v2) {
+			return new VectorD3 { x = v.x / v2.x, y = v.y / v2.y, z = v.z };
+		}
 	}
 
 	public struct TiePoint {
 		public VectorD3 rasterPt;
 		public VectorD3 modelPt;
-
-		public bool Eq(TiePoint b) {
-			return rasterPt.Eq(b.rasterPt) && modelPt.Eq(b.modelPt);
-		}
 
 		public override string ToString() {
 			return string.Format("rasterPt: {0} modelPt: {1}", rasterPt, modelPt);
