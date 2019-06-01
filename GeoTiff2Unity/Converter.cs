@@ -2,6 +2,16 @@
 using System.IO;
 using BitMiracle.LibTiff.Classic;
 
+//
+// TODO: instead of resizing and just cutting off one piece
+// break into multiple squares that suit unity requirements.
+// number as grid. each raw height map should be 2^N+1 square with size in name on output
+// grid number should also be in output name
+// same for RGB tifs out - size not needed, grid coords yes.
+//
+// TODO: for intermed test to fix unity import misalignment
+// go back to cutting at 1025x1025 or scale up 1968 to 2049
+
 namespace GeoTiff2Unity {
 	public static class RasterExt {
 		public static VectorD2 GetSizePix<T>(this Raster<T> r) where T : struct {
@@ -69,6 +79,7 @@ namespace GeoTiff2Unity {
 		VectorD2 hmSizePix = (VectorD2)0;
 		int hmChannelCount = 0;
 		int hmRowsPerStrip = 0;
+		Orientation hmOrientation = Orientation.TOPLEFT;
 		SampleFormat hmSampleFormat = SampleFormat.UINT;
 		VectorD3 hmPixToProjScale = (VectorD3)0;
 		TiePoint[] hmTiePoints = null;
@@ -87,6 +98,7 @@ namespace GeoTiff2Unity {
 		VectorD2 rgbSizePix = (VectorD2)0;
 		int rgbChannelCount = 0;
 		int rgbRowsPerStrip = 0;
+		Orientation rgbOrientation = Orientation.TOPLEFT;
 		SampleFormat rgbSampleFormat = SampleFormat.UINT;
 		VectorD3 rgbPixToProjScale = (VectorD3)0;
 		TiePoint[] rgbTiePoints = null;
@@ -95,10 +107,10 @@ namespace GeoTiff2Unity {
 		VectorD2 rgbOutSizePix = (VectorD2)0;
 		uint rgbOutBPP = 0;
 
-		VectorD3 hmToRGBPixScale = (VectorD3)0;
-		VectorD3 rgbToHMPixScale = (VectorD3)0;
-		VectorD3 hmToRGBPixTrans = (VectorD3)0;
-		VectorD3 rgbToHMPixTrans = (VectorD3)0;
+		VectorD2 hmToRGBPixScale = (VectorD2)0;
+		VectorD2 rgbToHMPixScale = (VectorD2)0;
+		VectorD2 hmToRGBPixTrans = (VectorD2)0;
+		VectorD2 rgbToHMPixTrans = (VectorD2)0;
 
 		void loadHeightMapHeader() {
 			Util.Log("Loading header data for {0}", hmTiffInPath);
@@ -111,6 +123,7 @@ namespace GeoTiff2Unity {
 			hmSizePix.x = hmTiffIn.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
 			hmSizePix.y = hmTiffIn.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
 			hmRowsPerStrip = hmTiffIn.IsTiled() ? 0 : hmTiffIn.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
+			hmOrientation = (Orientation)hmTiffIn.GetField(TiffTag.ORIENTATION)[0].ToInt();
 
 			if (hmSizePix.x <= 0 || hmSizePix.y <= 0) {
 				Util.Error("Invalid height map image size {0}", hmSizePix);
@@ -146,8 +159,9 @@ namespace GeoTiff2Unity {
 
 			rgbSizePix.x = rgbTiffIn.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
 			rgbSizePix.y = rgbTiffIn.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
-
 			rgbChannelCount = rgbTiffIn.GetField(TiffTag.SAMPLESPERPIXEL)[0].ToInt();
+			rgbOrientation = (Orientation)rgbTiffIn.GetField(TiffTag.ORIENTATION)[0].ToInt();
+
 			rgbSampleFormat = SampleFormat.UINT;
 
 			var sampleFormatField = rgbTiffIn.GetField(TiffTag.SAMPLEFORMAT);
@@ -295,16 +309,24 @@ namespace GeoTiff2Unity {
 			using (Tiff outRGB = Tiff.Open(outputRGBTifPath, "w")) {
 				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)rgbRaster.width);
 				outRGB.SetField(TiffTag.IMAGELENGTH, (int)rgbRaster.height);
-				outRGB.SetField(TiffTag.BITSPERSAMPLE, 8);
 				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, 3);
+				outRGB.SetField(TiffTag.BITSPERSAMPLE, rgbRaster.bitsPerPixel / 3);
 				outRGB.SetField(TiffTag.SAMPLEFORMAT, SampleFormat.UINT);
 				outRGB.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
-				outRGB.SetField(TiffTag.ORIENTATION, Orientation.TOPLEFT);
+				outRGB.SetField(TiffTag.ORIENTATION, rgbOrientation);
 				outRGB.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
 				outRGB.SetField(TiffTag.COMPRESSION, Compression.LZW);
 				outRGB.SetField(TiffTag.PREDICTOR, Predictor.HORIZONTAL);
+
+				//
+				// TODO - change to 32 row strips. this is lazy and ugly.
+				// it also causes problems if the image is not well sized.
+				// e.g. 8191x8192 image fails to write.
+				//
+				//outRGB.SetField(TiffTag.ROWSPERSTRIP, 32);
 				outRGB.SetField(TiffTag.TILEWIDTH, (int)rgbRaster.width);
 				outRGB.SetField(TiffTag.TILELENGTH, (int)rgbRaster.height);
+
 
 				outRGB.WriteEncodedTile(0, rgbRaster.ToByteArray(), (int)rgbRaster.sizeBytes);
 			}
@@ -412,6 +434,9 @@ namespace GeoTiff2Unity {
 			// HACK FOR NOW - Unity requires square textures?
 			hmOutSizePix = (VectorD2)hmSizePix.Min();
 
+			hmToRGBPixScale = hmPixToProjScale / rgbPixToProjScale;
+			rgbToHMPixScale = rgbPixToProjScale / hmPixToProjScale;
+
 			if (rgbTiePoints.Length != hmTiePoints.Length) {
 				Util.Warn("Input height map has {0} tie points, rgb image has {1}", hmTiePoints.Length, rgbTiePoints.Length);
 			}
@@ -420,27 +445,56 @@ namespace GeoTiff2Unity {
 				Util.Warn("Tie points beyond index 0 ignored.");
 			}
 
-			if (!rgbTiePoints[0].Eq(hmTiePoints[0])) {
-				// offset in meters. N > S, E > W
-				double alignOffsetY = hmTiePoints[0].modelPt.y - rgbTiePoints[0].modelPt.y;
-				double alignOffsetX = rgbTiePoints[0].modelPt.x - hmTiePoints[0].modelPt.x;
-
-				double hmToRGBPixX = hmPixToProjScale.x / rgbPixToProjScale.x;
-				double hmToRGBPixY = hmPixToProjScale.y / rgbPixToProjScale.y;
-
-				alignOffsetX *= rgbPixToProjScale.x;
-				alignOffsetY *= rgbPixToProjScale.y;
-
-				alignOffsetX += hmTiePoints[0].rasterPt.x - rgbTiePoints[0].rasterPt.x;
-				alignOffsetY += hmTiePoints[0].rasterPt.y - rgbTiePoints[0].rasterPt.y;
-
-				//hmRGBAlignOffsetX = (int)alignOffsetX;
-				//hmRGBAlignOffsetY = (int)alignOffsetY;
+			if (!rgbTiePoints[0].rasterPt.Eq(hmTiePoints[0].rasterPt)) {
+				Util.Error("height map raster tie point {0} does not match rgb image raster tie point {1}",
+					(VectorD2)hmTiePoints[0].rasterPt, (VectorD2)rgbTiePoints[0].rasterPt);
 			}
 
-			hmToRGBPixScale = hmPixToProjScale / rgbPixToProjScale;
-			rgbToHMPixScale = rgbPixToProjScale / hmPixToProjScale;
+			Util.Log("TiePoints:");
+			Util.Log("  Height Map: {0} {1}", hmTiePoints[0], hmGeoKeys.rasterType);
+			Util.Log("  RGB Image: {0} {1}", rgbTiePoints[0], rgbGeoKeys.rasterType);
 
+			// misalignment seen is within bounds of 1/2 height map pixel - accounted for by diff in raster types - one is pixIsArea the other pixIsPoint.
+			// see raster space doc: http://geotiff.maptools.org/spec/geotiff2.5.html
+#if false
+			//
+			// TODO: take raster space pixel is point vs pixel is area into account when computing alignment.
+			//
+			if (!rgbTiePoints[0].modelPt.Eq(hmTiePoints[0].modelPt)) {
+				VectorD2 alignmentOffset = rgbTiePoints[0].modelPt - hmTiePoints[0].modelPt;
+
+				// TODO: find out if pixel row y+ corresponds to world space y+ (north)
+				// or if image is displayed north up (y+ is south and therefor negative)
+				if (rgbTiePoints[0].rasterPt.y == 0) {
+					alignmentOffset.y *= -1;
+				}
+
+				alignmentOffset *= (VectorD2)hmToRGBPixScale;
+
+				if(alignmentOffset.x < 0) {
+					rgbToHMPixTrans.x = -alignmentOffset.x;
+				} else {
+					hmToRGBPixTrans.x = alignmentOffset.x;
+				}
+
+				if (alignmentOffset.y < 0) {
+					rgbToHMPixTrans.y = -alignmentOffset.y;
+				} else {
+					hmToRGBPixTrans.y = alignmentOffset.y;
+				}
+
+				//
+				// TODO: verify above is correct
+				//
+			}
+
+			//
+			// TODO:
+			// if either of the hmToRGBPixTrans or rgbToHMPixTrans are non-zero
+			// trim one at the top and the other at the bottom to get them to line up vertically.
+			// and trim one at the left and the other at the right to get them to line up horizontally.
+			//
+#endif // false
 			rgbOutSizePix = (hmOutSizePix * (VectorD2)hmToRGBPixScale).Ceiling();
 		}
 
