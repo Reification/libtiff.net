@@ -4,19 +4,134 @@ using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
 
 namespace GeoTiff2Unity {
+	public struct VectorD2 {
+		public double x;
+		public double y;
+
+		public bool Eq(VectorD2 b) {
+			return x == b.x && y == b.y;
+		}
+
+		public VectorD2 Truncate() {
+			return new VectorD2 { x = Math.Truncate(x), y = Math.Truncate(y) };
+		}
+
+		public VectorD2 Ceiling() {
+			return new VectorD2 { x = Math.Ceiling(x), y = Math.Ceiling(y) };
+		}
+
+		public VectorD2 Floor() {
+			return new VectorD2 { x = Math.Floor(x), y = Math.Floor(y) };
+		}
+
+		public double Min() {
+			return Math.Min(x, y);
+		}
+
+		public double Max() {
+			return Math.Max(x, y);
+		}
+
+		public override string ToString() {
+			return string.Format("({0}, {1})", x, y);
+		}
+
+		public static implicit operator VectorD2(double v) {
+			return new VectorD2 { x = v, y = v };
+		}
+
+		public static implicit operator VectorD2(VectorD3 v3) {
+			return new VectorD2 { x = v3.x, y = v3.y };
+		}
+
+		public static VectorD2 operator *(VectorD2 v, double s) {
+			return new VectorD2 { x = v.x * s, y = v.y * s };
+		}
+
+		public static VectorD2 operator *(double s, VectorD2 v) {
+			return new VectorD2 { x = v.x * s, y = v.y * s };
+		}
+
+		public static VectorD2 operator /(VectorD2 v, double s) {
+			return new VectorD2 { x = v.x / s, y = v.y / s };
+		}
+
+		public static VectorD2 operator +(VectorD2 v, VectorD2 v2) {
+			return new VectorD2 { x = v.x + v2.x, y = v.y + v2.y };
+		}
+
+		public static VectorD2 operator -(VectorD2 v, VectorD2 v2) {
+			return new VectorD2 { x = v.x - v2.x, y = v.y - v2.y };
+		}
+
+		public static VectorD2 operator *(VectorD2 v, VectorD2 v2) {
+			return new VectorD2 { x = v.x * v2.x, y = v.y * v2.y };
+		}
+
+		public static VectorD2 operator /(VectorD2 v, VectorD2 v2) {
+			return new VectorD2 { x = v.x / v2.x, y = v.y / v2.y };
+		}
+	}
+
 	public struct VectorD3 {
 		public double x;
 		public double y;
 		public double z;
 
-		public static readonly VectorD3 zero = new VectorD3 { x = 0, y = 0, z = 0 };
-
 		public bool Eq(VectorD3 b) {
 			return x == b.x && y == b.y && z == b.z;
 		}
 
+		public VectorD3 Truncate() {
+			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
+		}
+
+		public VectorD3 Ceiling() {
+			return new VectorD3 { x = Math.Ceiling(x), y = Math.Ceiling(y), z = Math.Ceiling(z) };
+		}
+
+		public VectorD3 Floor() {
+			return new VectorD3 { x = Math.Floor(x), y = Math.Floor(y), z = Math.Floor(z) };
+		}
+
 		public override string ToString() {
 			return string.Format("({0}, {1}, {2})", x, y, z);
+		}
+
+		public static implicit operator VectorD3(double v) {
+			return new VectorD3 { x = v, y = v, z = v };
+		}
+
+		public static implicit operator VectorD3(VectorD2 v2) {
+			return new VectorD3 { x = v2.x, y = v2.y, z = 0 };
+		}
+
+		public static VectorD3 operator *(VectorD3 v, double s) {
+			return new VectorD3 { x = v.x * s, y = v.y * s, z = v.z * s };
+		}
+
+		public static VectorD3 operator *(double s, VectorD3 v) {
+			return new VectorD3 { x = v.x * s, y = v.y * s, z = v.z * s };
+		}
+
+		public static VectorD3 operator /(VectorD3 v, double s) {
+			return new VectorD3 { x = v.x / s, y = v.y / s, z = v.z / s };
+		}
+
+		public static VectorD3 operator +(VectorD3 v, VectorD3 v2) {
+			return new VectorD3 { x = v.x + v2.x, y = v.y + v2.y, z = v.z + v2.z };
+		}
+
+		public static VectorD3 operator -(VectorD3 v, VectorD3 v2) {
+			return new VectorD3 { x = v.x - v2.x, y = v.y - v2.y, z = v.z - v2.z };
+		}
+
+		public static VectorD3 operator *(VectorD3 v, VectorD3 v2) {
+			return new VectorD3 { x = v.x * v2.x, y = v.y * v2.y, z = v.z * v2.z };
+		}
+
+		public static VectorD3 operator /(VectorD3 v, VectorD3 v2) {
+			return new VectorD3 { x = v.x / v2.x, y = v.y / v2.y, z = (v.z == 0 && v2.z == 0) ? 0 : v.z / v2.z };
 		}
 	}
 

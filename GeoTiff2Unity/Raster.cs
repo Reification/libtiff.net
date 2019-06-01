@@ -149,6 +149,7 @@ namespace GeoTiff2Unity {
 		public uint width { get; private set; }
 		public uint height { get; private set; }
 		public uint pitch { get; private set; }
+
 		public uint sizeBytes { get { return pitch * height; } }
 
 		private void rotate90(bool ccw) {
