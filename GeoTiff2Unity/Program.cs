@@ -89,17 +89,14 @@ namespace GeoTiff2Unity {
 		static private string appName = "GeoTiff2Raw";
 
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-overwrite] <outputHeight.raw> <outputRGB.tif>",
+			appName + " <inputHeight.tif> <inputRGB.tif> <outputNameBase>",
 			"  <inputHeight.tif>: source 32 bit float height map image",
 			"  <inputRGB.tif>: source RGB texture matching height map",
-			"  -overwrite: if output image exists it will be overwritten. this is an error otherwise.",
-			"  <outputHeight.raw>: target raw heightmap for import into Unity",
-			"  <outputRGB.tif>: target RGB texture for import into Unity"
+			"  <outputNameBase>: base name for output height map and rgb assets.",
 		};
 
 		static void Main(string[] args) {
 			Converter cnv = new Converter();
-			bool overwriteOuput = false;
 
 			foreach (var arg in args) {
 				if (arg[0] == '-') {
@@ -110,9 +107,6 @@ namespace GeoTiff2Unity {
 					case "u":
 					case "usage":
 						usage(null);
-						break;
-					case "overwrite":
-						overwriteOuput = true;
 						break;
 					default:
 						usage("unknown option {0}", arg);
@@ -141,20 +135,9 @@ namespace GeoTiff2Unity {
 					usage("Invalid RGB input image {0}", arg);
 				}
 
-				if (cnv.outputRawHeightPath == null) {
-					if (Util.IsRaw(arg)) {
-						cnv.outputRawHeightPath = arg;
+				if (cnv.outPathBase == null) {
+						cnv.outPathBase = arg;
 						continue;
-					}
-					usage("Invalid raw height map output image {0}", arg);
-				}
-
-				if (cnv.outputRGBTifPath == null) {
-					if (Util.IsTiff(arg) || Util.IsJpg(arg)) {
-						cnv.outputRGBTifPath = arg;
-						continue;
-					}
-					usage("Invalid RGB output image {0}", arg);
 				}
 
 				usage("unexpected argument {0}", arg);
@@ -162,8 +145,7 @@ namespace GeoTiff2Unity {
 
 			if (	cnv.hmTiffInPath == null ||
 						cnv.rgbTiffInPath == null ||
-						cnv.outputRawHeightPath == null ||
-						cnv.outputRGBTifPath == null ) 
+						cnv.outPathBase == null ) 
 			{
 				usage(args.Length > 0 ? "all inputs and outputs must be specified." : null);
 			}
@@ -176,22 +158,10 @@ namespace GeoTiff2Unity {
 			}
 
 			{
-				var outputDir = Path.GetDirectoryName(cnv.outputRawHeightPath);
+				var outputDir = Path.GetDirectoryName(cnv.outPathBase);
 				if (outputDir.Length > 0 && !Directory.Exists(outputDir)) {
 					usage("{0} does not exist.", outputDir);
 				}
-			}
-			{
-				var outputDir = Path.GetDirectoryName(cnv.outputRGBTifPath);
-				if (outputDir.Length > 0 && !Directory.Exists(outputDir)) {
-					usage("{0} does not exist.", outputDir);
-				}
-			}
-
-			if (!overwriteOuput && (File.Exists(cnv.outputRawHeightPath) || File.Exists(cnv.outputRGBTifPath))) {
-				usage("{0} and/or {1} exists. use different output paths or specify -overwrite.",
-					cnv.outputRawHeightPath,
-					cnv.outputRGBTifPath);
 			}
 
 			bool result = cnv.Go();

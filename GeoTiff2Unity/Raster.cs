@@ -13,9 +13,16 @@ namespace GeoTiff2Unity {
 	}
 
 	public class Raster<T> where T : struct {
-		public static readonly uint pixSize = sizeofPixType();
+		public static readonly uint pixSizeBytes = pixTypeSizeBytes();
+		public static readonly uint pixChannelCount = pixTypeChannelCount();
 
-		public uint bitsPerPixel {  get { return pixSize * 8; } }
+		public uint bytesPerPixel { get { return pixSizeBytes; } }
+		public uint bytesPerChannel { get { return (pixSizeBytes / pixChannelCount); } }
+
+		public uint bitsPerPixel {  get { return bytesPerPixel * 8; } }
+		public uint bitsPerChannel {  get { return bytesPerChannel * 8; } }
+
+		public uint channelCount {  get { return pixChannelCount; } }
 
 		public Raster() {
 			width = height = pitch = 0;
@@ -29,7 +36,7 @@ namespace GeoTiff2Unity {
 		public void Init(uint _width, uint _height) {
 			width = _width;
 			height = _height;
-			pitch = _width * pixSize;
+			pitch = _width * pixSizeBytes;
 			pixels = new T[width * height];
 		}
 
@@ -101,7 +108,7 @@ namespace GeoTiff2Unity {
 
 		public byte[] ToByteArray() {
 			if (typeof(T).IsPrimitive) {
-				byte[] rasterBytes = new byte[pixels.Length * pixSize];
+				byte[] rasterBytes = new byte[sizeBytes];
 				Buffer.BlockCopy(pixels, 0, rasterBytes, 0, rasterBytes.Length);
 				return rasterBytes;
 			} else {
@@ -156,8 +163,8 @@ namespace GeoTiff2Unity {
 		private void rotate90(bool ccw) {
 			uint newW = height;
 			uint newH = width;
-			uint newP = newW * pixSize;
-			T[] newPixels = new T[width * height];
+			uint newP = newW * pixSizeBytes;
+			T[] newPixels = new T[sizePix];
 
 			if (ccw) {
 				for (uint dstY = 0, dstR = 0, srcX = width - 1; dstY < newH; dstY++, dstR += newW, srcX--) {
@@ -180,8 +187,12 @@ namespace GeoTiff2Unity {
 			pixels = newPixels;
 		}
 
-		private static uint sizeofPixType() {
+		private static uint pixTypeSizeBytes() {
 			return (uint)Marshal.SizeOf(typeof(T));
+		}
+
+		private static uint pixTypeChannelCount() {
+			return (typeof(T).IsPrimitive ? 1u : 3u);
 		}
 	}
 

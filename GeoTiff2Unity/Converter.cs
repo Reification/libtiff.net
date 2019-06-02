@@ -48,8 +48,7 @@ namespace GeoTiff2Unity {
 	public class Converter {
 		public string hmTiffInPath = null;
 		public string rgbTiffInPath = null;
-		public string outputRawHeightPath = null;
-		public string outputRGBTifPath = null;
+		public string outPathBase = null;
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -67,22 +66,16 @@ namespace GeoTiff2Unity {
 #endif
 		}
 
-		static double[] getModelTransformation(Tiff tif) {
-			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTRANSFORMATIONTAG);
-			if (v?.Length == 2 && v[0].ToInt() == 16) {
-				var val = v[1].ToDoubleArray();
-				return val;
-			}
-			return null;
-		}
+		void go() {
+			loadHeightMapHeader();
 
-		static int getGdalNoData(Tiff tif) {
-			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.GDALNODATATAG);
-			if (v?.Length > 1) {
-				int val = int.Parse(v[1].ToString());
-				return val;
-			}
-			return int.MinValue;
+			loadRGBHeader();
+
+			alignHMToRGB();
+
+			processHeightMap();
+
+			processRGBImage();
 		}
 
 		const uint kMaxUnityTexSize = 8 * 1024;
@@ -253,24 +246,21 @@ namespace GeoTiff2Unity {
 			return rgbRaster;
 		}
 
-		void writeHMRawOut(Raster<ushort> hmRasterU16) {
-			// Unity's default height map orientation is upside down WRT RGB textures.
-			hmRasterU16.YFlip();
-
-			using (var outFile = new FileStream(outputRawHeightPath, FileMode.Create, FileAccess.Write)) {
+		void writeHMRawOut(string path, Raster<ushort> hmRasterU16) {
+			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
 				outFile.Write(hmRasterU16.ToByteArray(), 0, (int)hmRasterU16.sizeBytes);
 			}
 		}
 
-		void writeRGBTiffOut(Raster<ColorU8> rgbRaster) {
-			using (Tiff outRGB = Tiff.Open(outputRGBTifPath, "w")) {
+		void writeRGBTiffOut(string path, Raster<ColorU8> rgbRaster, Orientation orientation) {
+			using (Tiff outRGB = Tiff.Open(path, "w")) {
 				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)rgbRaster.width);
 				outRGB.SetField(TiffTag.IMAGELENGTH, (int)rgbRaster.height);
-				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, 3);
-				outRGB.SetField(TiffTag.BITSPERSAMPLE, rgbRaster.bitsPerPixel / 3);
+				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, rgbRaster.channelCount);
+				outRGB.SetField(TiffTag.BITSPERSAMPLE, rgbRaster.bitsPerChannel);
 				outRGB.SetField(TiffTag.SAMPLEFORMAT, SampleFormat.UINT);
 				outRGB.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
-				outRGB.SetField(TiffTag.ORIENTATION, rgbHeader.orientation);
+				outRGB.SetField(TiffTag.ORIENTATION, orientation);
 				outRGB.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
 				outRGB.SetField(TiffTag.COMPRESSION, Compression.LZW);
 				outRGB.SetField(TiffTag.PREDICTOR, Predictor.HORIZONTAL);
@@ -291,67 +281,74 @@ namespace GeoTiff2Unity {
 		}
 
 		void processHeightMap() {
-			{
-				var hmRasterF32 = new Raster<float>();
-				var hmRasterU16 = new Raster<ushort>();
-				hmOutBPP = hmRasterU16.bitsPerPixel;
+			VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
+			float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
+			float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
 
-				loadPixelData(ref hmTiffIn, hmHeader, hmRasterF32);
+			var hmRasterF32 = new Raster<float>();
+			var hmRasterU16 = new Raster<ushort>();
+			hmOutBPP = hmRasterU16.bitsPerPixel;
 
-				Util.Log("Converting float32 height map to uint16 raw Unity asset.");
+			loadPixelData(ref hmTiffIn, hmHeader, hmRasterF32);
 
-				hmRasterF32 = processHeightMapData(hmRasterF32);
-
-				hmF32ToU16SampleTrans = (float)-hmMinVal;
-				hmF32ToU16SampleScale = (float)((Math.Pow(2.0, hmRasterU16.bitsPerPixel) - 1) / (hmMaxVal + hmF32ToU16SampleTrans));
-
-				hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
-
-				writeHMRawOut(hmRasterU16);
+			// Unity height map textures are (by default) bottom to top.
+			switch ( hmHeader.orientation ) {
+			case Orientation.TOPLEFT:
+				hmRasterF32.YFlip();
+				break;
+			case Orientation.BOTLEFT:
+				break;
+			default:
+				Util.Error("Unsupported height map orientation {0}", hmHeader.orientation);
+				break;
 			}
 
-			{
-				VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
+			Util.Log("Converting float32 height map to uint16 raw Unity asset.");
 
-				float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
-				float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
+			hmRasterF32 = processHeightMapData(hmRasterF32);
 
-				Util.Log("");
-				Util.Log("Ouput Raw Height Map: {0}", outputRawHeightPath);
-				Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
-				Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
-				Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
-				Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-				Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
-				Util.Log("");
-			}
+			hmF32ToU16SampleTrans = (float)-hmMinVal;
+			hmF32ToU16SampleScale = (float)((Math.Pow(2.0, hmRasterU16.bitsPerPixel) - 1) / (hmMaxVal + hmF32ToU16SampleTrans));
+
+			hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
+
+			string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
+
+			writeHMRawOut(hmRawOutPath, hmRasterU16);
+
+			Util.Log("");
+			Util.Log("Ouput Raw Height Map: {0}", hmRawOutPath);
+			Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
+			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
+			Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
+			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
+			Util.Log("");
 		}
 
 		void processRGBImage() {
 			Util.Log("Converting RGB image to Unity ready asset.");
 
-			{
-				var rgbRaster = new Raster<ColorU8>();
+			var rgbRaster = new Raster<ColorU8>();
 
-				rgbOutBPP = rgbRaster.bitsPerPixel;
+			rgbOutBPP = rgbRaster.bitsPerPixel;
 
-				loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
+			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
-				rgbRaster = processRGBData(rgbRaster);
+			rgbRaster = processRGBData(rgbRaster);
 
-				writeRGBTiffOut(rgbRaster);
-			}
+			string rgbTiffOutPath = genRGBTiffOutPath((VectorD2)0, rgbRaster);
+				
+			writeRGBTiffOut(rgbTiffOutPath, rgbRaster, rgbHeader.orientation);
 
-			{
-				VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
+			VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
 
-				Util.Log("");
-				Util.Log("Output RGB Image: {0}", outputRGBTifPath);
-				Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
-				Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
-				Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-				Util.Log("");
-			}
+			Util.Log("");
+			Util.Log("Output RGB Image: {0}", rgbTiffOutPath);
+			Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
+			Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
+			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			Util.Log("");
 		}
 
 		void alignHMToRGB() {
@@ -390,7 +387,7 @@ namespace GeoTiff2Unity {
 			Util.Log("Tie Points:");
 			Util.Log("  Height Map: {0} {1}", hmHeader.tiePoints[0], hmHeader.geoKeys.rasterType);
 			Util.Log("  RGB Image: {0} {1}", rgbHeader.tiePoints[0], rgbHeader.geoKeys.rasterType);
-			Util.Log("  Proj Point Delta: {0} {1}", tiePointDelta, hmHeader.geoKeys.projLinearUnit);
+			Util.Log("  Proj Point Delta: {0} meters", tiePointDelta);
 			Util.Log("  Proj Point HM Pix Delta: {0}", tiePointDelta / (VectorD2)hmHeader.pixToProjScale);
 			Util.Log("  Proj Point RGB Pix Delta: {0}", tiePointDelta / (VectorD2)rgbHeader.pixToProjScale);
 
@@ -454,16 +451,34 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		void go() {
-			loadHeightMapHeader();
+		static double[] getModelTransformation(Tiff tif) {
+			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTRANSFORMATIONTAG);
+			if (v?.Length == 2 && v[0].ToInt() == 16) {
+				var val = v[1].ToDoubleArray();
+				return val;
+			}
+			return null;
+		}
 
-			loadRGBHeader();
+		static int getGdalNoData(Tiff tif) {
+			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.GDALNODATATAG);
+			if (v?.Length > 1) {
+				int val = int.Parse(v[1].ToString());
+				return val;
+			}
+			return int.MinValue;
+		}
 
-			alignHMToRGB();
+		string genHMRawOutPath(VectorD2 tilePos, Raster<ushort> hmRaster) {
+			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}{4:D2}.raw";
+			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.x, (uint)tilePos.y);
+			return path;
+		}
 
-			processHeightMap();
-
-			processRGBImage();
+		string genRGBTiffOutPath(VectorD2 tilePos, Raster<ColorU8> rgbRaster) {
+			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}{1:D2}.tif";
+			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.x, (uint)tilePos.y);
+			return path;
 		}
 	}
 }
