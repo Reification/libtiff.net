@@ -12,12 +12,20 @@ using BitMiracle.LibTiff.Classic;
 
 namespace GeoTiff2Unity {
 	public class Converter {
-		public const uint kMaxUnityTexSize = 8 * 1024;
+		public const uint kMaxUnityTexSize	= 8 * 1024;
+
+		public const uint kMinRGBTexSize = 512;
+		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
+
+		public const uint kMinHeightTexSize = 65;
+		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
 
 		public string hmTiffInPath = null;
 		public string rgbTiffInPath = null;
 		public string outPathBase = null;
-		public uint maxTextureSize = kMaxUnityTexSize;
+
+		public uint hmMaxTexSizeOut = kMaxRGBTexSize;
+		public uint rgbMaxTexSizeOut = kMaxHeightTexSize;
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -158,8 +166,8 @@ namespace GeoTiff2Unity {
 
 			rgbOutSizePix = rgbCropSizePix;
 
-			if (rgbOutSizePix.Max() > kMaxUnityTexSize) {
-				double outScale = kMaxUnityTexSize / rgbOutSizePix.Max();
+			if (rgbOutSizePix.Max() > rgbMaxTexSizeOut) {
+				double outScale = rgbMaxTexSizeOut / rgbOutSizePix.Max();
 				rgbOutSizePix = (rgbOutSizePix * outScale).Ceiling();
 				rgbHeader.pixToProjScale /= outScale;
 			}
