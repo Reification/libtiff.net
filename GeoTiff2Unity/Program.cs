@@ -15,14 +15,6 @@ namespace GeoTiff2Unity {
 			throw new Exception(string.Format(message, args));
 		}
 
-		public static bool CheckEnumVal<E>(E v) where E : struct {
-			if (!Enum.IsDefined(typeof(E), v)) {
-				Warn("Assigned to {0} unknown value {1}", typeof(E).Name, v);
-				return false;
-			}
-			return true;
-		}
-
 		public static void ByteSwap2(byte[] arr) {
 			if ((arr.Length & 0x01) != 0) {
 				Util.Error("byteSwap2 array length {0} not a multiple of 2!", arr.Length);
@@ -87,11 +79,13 @@ namespace GeoTiff2Unity {
 
 	class Program {
 		static private string appName = "GeoTiff2Raw";
+		const uint kMinTexSize = 512;
 
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> <outputNameBase>",
+			appName + " <inputHeight.tif> <inputRGB.tif> [-maxtexsize=<max_output_texture_size>] <outputNameBase>",
 			"  <inputHeight.tif>: source 32 bit float height map image",
 			"  <inputRGB.tif>: source RGB texture matching height map",
+			"  -maxtexsize=<max_output_texture_size>: optional, default value is max Unity texture size " + Converter.kMaxUnityTexSize + ", must be >= " + kMinTexSize,
 			"  <outputNameBase>: base name for output height map and rgb assets.",
 		};
 
@@ -101,12 +95,21 @@ namespace GeoTiff2Unity {
 			foreach (var arg in args) {
 				if (arg[0] == '-') {
 					string option = arg.Substring(1).ToLower();
-					switch (option) {
+					string[] nameValPair = option.Split('=');
+					switch (nameValPair[0].ToLower()) {
 					case "h":
 					case "help":
 					case "u":
 					case "usage":
 						usage(null);
+						break;
+					case "maxtexsize":
+						if(nameValPair.Length != 2) {
+							usage("option {0}: invalid format {1}", nameValPair[0], option);
+						}
+						if ( !uint.TryParse(nameValPair[1], out cnv.maxTextureSize) || cnv.maxTextureSize < kMinTexSize ) {
+							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
+						}
 						break;
 					default:
 						usage("unknown option {0}", arg);

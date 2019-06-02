@@ -8,6 +8,9 @@ namespace GeoTiff2Unity {
 		public double x;
 		public double y;
 
+		public double width { get { return x; } }
+		public double height { get { return y; } }
+
 		public VectorD2 Truncate() {
 			return new VectorD2 { x = Math.Truncate(x), y = Math.Truncate(y) };
 		}
@@ -89,6 +92,10 @@ namespace GeoTiff2Unity {
 		public double x;
 		public double y;
 		public double z;
+
+		public double width { get { return x; } }
+		public double height { get { return y; } }
+		public double depth { get { return z; } }
 
 		public VectorD3 Truncate() {
 			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
@@ -192,17 +199,19 @@ namespace GeoTiff2Unity {
 
 	public class GeoKeyDir {
 		public static GeoKeyDir GetGeoKeyDir(Tiff tif) {
+			Util.Log("Parsing GeoKeyDir");
+
 			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.GEOKEYDIRECTORYTAG);
 			if (v?.Length == 2 && v[0].ToInt() >= 4) {
 				double[] doubleParams = getGeoDoublesParams(tif);
-				string[] asciiParams = getGeoAsciiParams(tif);
+				string asciiParams = getGeoAsciiParams(tif);
 				var val = v[1].ToUShortArray();
 				GeoKeyDir keyDir = new GeoKeyDir();
 
 				keyDir.rawHeader.keyDirVersion = val[0];
 
 				if (keyDir.rawHeader.keyDirVersion != 1) {
-					Util.Error("GeoKeyDir version must be 1, was {0}", keyDir.rawHeader.keyDirVersion);
+					Util.Error("  GeoKeyDir version must be 1, was {0}", keyDir.rawHeader.keyDirVersion);
 				}
 
 				keyDir.rawHeader.keyMajorRevision = val[1];
@@ -210,13 +219,13 @@ namespace GeoTiff2Unity {
 				keyDir.rawHeader.keyCount = val[3];
 
 				keyDir.doubleParams = doubleParams;
-				keyDir.asciiParams = asciiParams;
+				keyDir.asciiParams = asciiParams == null ? "" : asciiParams;
 
 				keyDir.rawKeys = new GeoKeyRaw[keyDir.rawHeader.keyCount];
 
 				for (int ki = 0, di = 4; ki < keyDir.rawKeys.Length; ki++, di += 4) {
 					if (di >= val.Length) {
-						Util.Error("GeoKey parsing of key {0}/{1} ran off the end of the incoming data array",
+						Util.Error("  GeoKey parsing of key {0}/{1} ran off the end of the incoming data array",
 							ki, keyDir.rawKeys.Length);
 					}
 
@@ -230,39 +239,30 @@ namespace GeoTiff2Unity {
 					valCount = keyDir.rawKeys[ki].valueCount = val[di + 2];
 					valOffset = keyDir.rawKeys[ki].valueOffset = val[di + 3];
 
-					Util.CheckEnumVal(key);
-
 					switch (valueSourceTag) {
 					case GeoTiffTag.NONE:
 						if (valCount != 1) {
-							Util.Error("GeoKey[{0}] {1} (ushort) valCount is {2}, only 1 value per key supported.", ki, key, valCount);
+							Util.Error("  GeoKey[{0}] {1} (ushort) valCount is {2}, only 1 value per key supported.", ki, key, valCount);
 						}
 						keyDir.addCodeValue(key, valOffset);
 						break;
 					case GeoTiffTag.GEODOUBLEPARAMSTAG:
 						if (valCount != 1) {
-							Util.Error("GeoKey[{0}] {1} (double) valCount is {2}, only 1 value per key supported.", ki, key, valCount);
+							Util.Error("  GeoKey[{0}] {1} (double) valCount is {2}, only 1 value per key supported.", ki, key, valCount);
 						}
 						keyDir.addDoubleValue(key, doubleParams[valOffset]);
 						break;
 					case GeoTiffTag.GEOASCIIPARAMSTAG:
 						if (valCount < 1) {
-							Util.Error("GeoKey[{0}] {1} (ascii) valCount is {2}, must be >= 1.", ki, key, valCount);
+							Util.Error("  GeoKey[{0}] {1} (ascii) valCount is {2}, must be >= 1.", ki, key, valCount);
 						}
-						string asciiVal = "";
-						// value offset is index into string buffer with all values separated by |
-						// we convert to array of strings so need to convert from buffer inset to string array index.
-						for (int strIdx = 0, bufInset = valOffset; bufInset >= 0;) {
-							asciiVal = asciiParams[strIdx++];
-							bufInset -= asciiVal.Length;
-						}
-						if (valCount != asciiVal.Length + 1) {
-							Util.Error("GeoKey[{0}] {1} (ascii) has corrupt string reference. Expected {2} chars, got {3}", ki, key, valCount, asciiVal.Length + 1);
-						}
+						// valOffset is index into string buffer with all values separated by |
+						// valCount includes the terminating |
+						string asciiVal = asciiParams.Substring(valOffset, valCount - 1);
 						keyDir.addAsciiValue(key, asciiVal);
 						break;
 					default:
-						Util.Error("GeoKey[{0}] {1} tiffTaglLocation {2} is invalid. Must be 0, GEODOUBLEPARAMSTAG or GEOASCIIPARAMSTAG", ki, key, valueSourceTag);
+						Util.Error("  GeoKey[{0}] {1} tiffTaglLocation {2} is invalid. Must be 0, GEODOUBLEPARAMSTAG or GEOASCIIPARAMSTAG", ki, key, valueSourceTag);
 						break;
 					}
 				}
@@ -357,71 +357,73 @@ namespace GeoTiff2Unity {
 
 		bool addCodeValue(GeoKey key, ushort value) {
 			codeValues.Add(key, value);
+
 			switch (key) {
 			case GeoKey.GTModelType:
 				modelType = (ModelType)value;
-				Util.CheckEnumVal(modelType);
+				checkKeyAssignment(key, modelType);
 				break;
 			case GeoKey.GTRasterType:
 				rasterType = (RasterType)value;
-				Util.CheckEnumVal(rasterType);
+				checkKeyAssignment(key, rasterType);
 				break;
 			case GeoKey.GeogType:
 				geographicCSType = (GeographicCSType)value;
-				Util.CheckEnumVal(geographicCSType);
+				checkKeyAssignment(key, geographicCSType);
 				break;
 			case GeoKey.GeogGeodeticDatum:
 				geodeticDatumCode = (GeodeticDatumCode)value;
-				Util.CheckEnumVal(geodeticDatumCode);
+				checkKeyAssignment(key, geodeticDatumCode);
 				break;
 			case GeoKey.GeogPrimeMeridian:
 				geogPrimeMeridianCode = (PrimeMeridianCode)value;
-				Util.CheckEnumVal(geogPrimeMeridianCode);
+				checkKeyAssignment(key, geogPrimeMeridianCode);
 				break;
 			case GeoKey.GeogLinearUnits:
 				geogLinearUnit = (LinearUnitCode)value;
-				Util.CheckEnumVal(geogLinearUnit);
+				checkKeyAssignment(key, geogLinearUnit);
 				break;
 			case GeoKey.GeogAngularUnits:
 				geogAngularUnit = (AngularUnitCode)value;
-				Util.CheckEnumVal(geogAngularUnit);
+				checkKeyAssignment(key, geogAngularUnit);
 				break;
 			case GeoKey.GeogEllipsoid:
 				geogEllipsoid = (EllipsoidCode)value;
-				Util.CheckEnumVal(geogEllipsoid);
+				checkKeyAssignment(key, geogEllipsoid);
 				break;
 			case GeoKey.GeogAzimuthUnits:
 				geogAzimuthUnit = (AngularUnitCode)value;
-				Util.CheckEnumVal(geogAzimuthUnit);
+				checkKeyAssignment(key, geogAzimuthUnit);
 				break;
 			case GeoKey.ProjectedCSType:
 				projectedCSType = (ProjectedCSType)value;
-				Util.CheckEnumVal(projectedCSType);
+				checkKeyAssignment(key, projectedCSType);
 				break;
 			case GeoKey.Projection:
 				projectionCode = (ProjectionCode)value;
-				Util.CheckEnumVal(projectionCode);
+				checkKeyAssignment(key, projectionCode);
 				break;
 			case GeoKey.ProjCoordTrans:
 				coordTransformCode = (CoordTransformCode)value;
-				Util.CheckEnumVal(coordTransformCode);
+				checkKeyAssignment(key, coordTransformCode);
 				break;
 			case GeoKey.VerticalCSType:
 				verticalCSType = (VerticalCSType)value;
-				Util.CheckEnumVal(verticalCSType);
+				checkKeyAssignment(key, verticalCSType);
 				break;
 			case GeoKey.VerticalUnits:
 				verticalLinearUnit = (LinearUnitCode)value;
-				Util.CheckEnumVal(verticalLinearUnit);
+				checkKeyAssignment(key, verticalLinearUnit);
 				break;
 			case GeoKey.ProjLinearUnits:
 				projLinearUnit = (LinearUnitCode)value;
-				Util.CheckEnumVal(projLinearUnit);
+				checkKeyAssignment(key, projLinearUnit);
 				break;
 			default:
-				Util.Warn("Assigning to unknown key {0} code value {1}", (int)key, value);
+				Util.Warn("  unhandled key {0} = code value {1}", key, value);
 				return false;
 			}
+
 			return true;
 		}
 
@@ -441,9 +443,12 @@ namespace GeoTiff2Unity {
 				verticalCitation = value;
 				break;
 			default:
-				Util.Warn("Assigning to unknown key {0} string value {1}", (int)key, value);
+				Util.Warn("  unhandled key {0} = string value {1}", key, value);
 				return false;
 			}
+
+			Util.Log("  {0} = {1}", key, value);
+
 			return true;
 		}
 
@@ -527,9 +532,11 @@ namespace GeoTiff2Unity {
 				projStraightVertPoleLon = value;
 				break;
 			default:
-				Util.Warn("Assigning to unknown key {0} double value {1}", (int)key, value);
+				Util.Warn("  unhandled key {0} = double value {1}", key, value);
 				return false;
 			}
+
+			Util.Log("  {0} = {1}", key, value);
 
 			return true;
 		}
@@ -537,7 +544,7 @@ namespace GeoTiff2Unity {
 		public GeoKeyDirRaw rawHeader = new GeoKeyDirRaw();
 		public GeoKeyRaw[] rawKeys = new GeoKeyRaw[0];
 		public double[] doubleParams = new double[0];
-		public string[] asciiParams = new string[0];
+		public string asciiParams = "";
 
 		public Dictionary<GeoKey, ushort> codeValues = new Dictionary<GeoKey, ushort>();
 		public Dictionary<GeoKey, string> asciiValues = new Dictionary<GeoKey, string>();
@@ -552,13 +559,22 @@ namespace GeoTiff2Unity {
 			return new double[0];
 		}
 
-		static string[] getGeoAsciiParams(Tiff tif) {
+		static string getGeoAsciiParams(Tiff tif) {
 			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.GEOASCIIPARAMSTAG);
 			if (v?.Length >= 2) {
 				string ascii = v[1].ToString();
-				return ascii.Split('|');
+				return ascii;
 			}
-			return new string[0];
+			return null;
+		}
+
+		static bool checkKeyAssignment<E>(GeoKey k, E v) where E : struct {
+			if (Enum.IsDefined(typeof(E), v)) {
+				Util.Log("  {0} = {1}", k, v);
+				return true;
+			}
+			Util.Warn("  {0} = unknown {1} value {2}", k, typeof(E).Name, v);
+			return false;
 		}
 	}
 }
