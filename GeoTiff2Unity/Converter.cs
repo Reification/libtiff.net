@@ -12,7 +12,7 @@ using BitMiracle.LibTiff.Classic;
 
 namespace GeoTiff2Unity {
 	public class Converter {
-		public const uint kMaxUnityTexSize	= 8 * 1024;
+		public const uint kMaxUnityTexSize = 8 * 1024;
 
 		public const uint kMinRGBTexSize = 512;
 		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
@@ -24,8 +24,8 @@ namespace GeoTiff2Unity {
 		public string rgbTiffInPath = null;
 		public string outPathBase = null;
 
-		public uint hmMaxTexSizeOut = kMaxRGBTexSize;
-		public uint rgbMaxTexSizeOut = kMaxHeightTexSize;
+		public uint hmOutMaxTexSize = kMaxRGBTexSize;
+		public uint rgbOutMaxTexSize = kMaxHeightTexSize;
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -62,6 +62,11 @@ namespace GeoTiff2Unity {
 				Util.Error("Height map has {0} {1} bit {2} channels. Expected exactly 1 32 bit IEEEFP.",
 					hmHeader.channelCount, hmHeader.bitsPerChannel, hmHeader.sampleFormat);
 			}
+
+			if (hmHeader.pixToProjScale.x != hmHeader.pixToProjScale.y) {
+				Util.Error("Height map {0} has non-square {1} pixels!", (VectorD2)hmHeader.pixToProjScale);
+				/// TODO: if this becomes a thing we'll need to scale the height map after loading it to correct.
+			}
 		}
 
 		void loadRGBHeader() {
@@ -74,23 +79,119 @@ namespace GeoTiff2Unity {
 		}
 
 		void computeAlignedTiling() {
-			if (hmHeader.geoKeys.projLinearUnit != hmHeader.geoKeys.verticalLinearUnit) {
-				Util.Error("Mismatch between height map plane units {0} and height map vertical units {1}", hmHeader.geoKeys.projLinearUnit, hmHeader.geoKeys.verticalLinearUnit);
-			}
-
-			if (hmHeader.geoKeys.projLinearUnit != rgbHeader.geoKeys.projLinearUnit) {
-				Util.Error("Mismatch between height map units {0} and rgb image units {1}", hmHeader.geoKeys.projLinearUnit, rgbHeader.geoKeys.projLinearUnit);
-			}
-
-			// Unity requires square height maps
-			hmOutSizePix = (VectorD2)hmHeader.sizePix.Min();
-
-			// Unity height maps must be size 2^N + 1 
-			hmOutSizePix = (VectorD2)(Math.Pow(2.0, Math.Ceiling(Math.Log(hmOutSizePix.x - 1) / Math.Log(2.0))) + 1.0);
+			// no scaling - we're going to tile.
+			hmOutSizePix = hmHeader.sizePix;
+			rgbOutSizePix = rgbHeader.sizePix;
 
 			hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
 			rgbToHMPixScale = rgbHeader.pixToProjScale / hmHeader.pixToProjScale;
 
+			computeAlignment();
+
+			hmOutTileSizePix = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmOutSizePix.Min()), hmOutMaxTexSize);
+			rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
+
+			while (rgbOutTileSizePix.Max() > rgbOutMaxTexSize) {
+				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 2);
+				rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
+			}
+
+			VectorD2 tileCounts = (hmOutSizePix / hmOutTileSizePix).Ceiling();
+
+			Util.Log("\nOutput will be {0} ({1}) tiles.", tileCounts, tileCounts.x * tileCounts.y );
+			Util.Log("  Height map tile size: {0}", hmOutTileSizePix);
+			Util.Log("  RGB texture tile size: {0}\n", rgbOutTileSizePix);
+		}
+
+		void processHeightMap() {
+			var hmRasterU16 = new Raster<ushort>();
+			hmOutBPP = hmRasterU16.bitsPerPixel;
+
+			{
+				var hmRasterF32 = new Raster<float>();
+
+				loadPixelData(ref hmTiffIn, hmHeader, hmRasterF32);
+
+				// Unity height map textures are (by default) bottom to top.
+				switch (hmHeader.orientation) {
+				case Orientation.TOPLEFT:
+					hmRasterF32.YFlip();
+					break;
+				case Orientation.BOTLEFT:
+					break;
+				default:
+					Util.Error("Unsupported height map orientation {0}", hmHeader.orientation);
+					break;
+				}
+
+				Util.Log("Converting float32 height map to uint16 raw Unity asset.");
+
+				hmRasterF32 = processHeightMapData(hmRasterF32);
+
+				hmF32ToU16SampleTrans = (float)-hmMinVal;
+				hmF32ToU16SampleScale = (float)((Math.Pow(2.0, hmRasterU16.bitsPerPixel) - 1) / (hmMaxVal + hmF32ToU16SampleTrans));
+
+				hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
+			}
+
+
+			//
+			// TODO: walk the output tiles
+			//
+
+			string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
+
+			writeHMRawOut(hmRawOutPath, hmRasterU16);
+
+			VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
+			float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
+			float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
+
+			Util.Log("");
+			Util.Log("Ouput Raw Height Map: {0}", hmRawOutPath);
+			Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
+			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
+			Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
+			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
+			Util.Log("");
+		}
+
+		void processRGBImage() {
+			Util.Log("Converting RGB image to Unity ready asset.");
+
+			var rgbRaster = new Raster<ColorU8>();
+
+			rgbOutBPP = rgbRaster.bitsPerPixel;
+
+			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
+
+			rgbRaster = processRGBData(rgbRaster);
+
+			//
+			// TODO: walk the output tiles
+			//
+
+			string rgbTiffOutPath = genRGBTiffOutPath((VectorD2)0, rgbRaster);
+
+			writeRGBTiffOut(rgbTiffOutPath, rgbRaster, rgbHeader.orientation);
+
+			VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
+
+			Util.Log("");
+			Util.Log("Output RGB Image: {0}", rgbTiffOutPath);
+			Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
+			Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
+			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			Util.Log("");
+		}
+
+		static double calcHeightMapSizeLTE(double curSize) {
+			// Unity height maps must be size 2^N + 1 
+			return Math.Pow(2.0, Math.Floor(Math.Log(curSize) / Math.Log(2.0))) + 1.0;
+		}
+
+		void computeAlignment() {
 			if (rgbHeader.tiePoints.Length != hmHeader.tiePoints.Length) {
 				Util.Warn("Input height map has {0} tie points, rgb image has {1}", hmHeader.tiePoints.Length, rgbHeader.tiePoints.Length);
 			}
@@ -112,6 +213,14 @@ namespace GeoTiff2Unity {
 			Util.Log("  Proj Point Delta: {0} meters", tiePointDelta);
 			Util.Log("  Proj Point HM Pix Delta: {0}", tiePointDelta / (VectorD2)hmHeader.pixToProjScale);
 			Util.Log("  Proj Point RGB Pix Delta: {0}", tiePointDelta / (VectorD2)rgbHeader.pixToProjScale);
+
+			if (hmHeader.geoKeys.projLinearUnit != hmHeader.geoKeys.verticalLinearUnit) {
+				Util.Error("Mismatch between height map plane units {0} and height map vertical units {1}", hmHeader.geoKeys.projLinearUnit, hmHeader.geoKeys.verticalLinearUnit);
+			}
+
+			if (hmHeader.geoKeys.projLinearUnit != rgbHeader.geoKeys.projLinearUnit) {
+				Util.Error("Mismatch between height map units {0} and rgb image units {1}", hmHeader.geoKeys.projLinearUnit, rgbHeader.geoKeys.projLinearUnit);
+			}
 
 			// misalignment seen is within bounds of 1/2 height map pixel - accounted for by diff in raster types - one is pixIsArea the other pixIsPoint.
 			// see raster space doc: http://geotiff.maptools.org/spec/geotiff2.5.html
@@ -154,94 +263,6 @@ namespace GeoTiff2Unity {
 			// and trim one at the left and the other at the right to get them to line up horizontally.
 			//
 #endif // false
-
-			hmCropSizePix = hmOutSizePix;
-
-			if (hmCropSizePix.x > hmHeader.sizePix.x || hmCropSizePix.y > hmHeader.sizePix.y) {
-				hmCropSizePix = (VectorD2)hmHeader.sizePix.Min();
-				hmHeader.pixToProjScale *= (hmCropSizePix / hmOutSizePix);
-			}
-
-			rgbCropSizePix = (hmCropSizePix * (VectorD2)hmToRGBPixScale).Ceiling();
-
-			rgbOutSizePix = rgbCropSizePix;
-
-			if (rgbOutSizePix.Max() > rgbMaxTexSizeOut) {
-				double outScale = rgbMaxTexSizeOut / rgbOutSizePix.Max();
-				rgbOutSizePix = (rgbOutSizePix * outScale).Ceiling();
-				rgbHeader.pixToProjScale /= outScale;
-			}
-		}
-
-		void processHeightMap() {
-			VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
-			float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
-			float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
-
-			var hmRasterF32 = new Raster<float>();
-			var hmRasterU16 = new Raster<ushort>();
-			hmOutBPP = hmRasterU16.bitsPerPixel;
-
-			loadPixelData(ref hmTiffIn, hmHeader, hmRasterF32);
-
-			// Unity height map textures are (by default) bottom to top.
-			switch ( hmHeader.orientation ) {
-			case Orientation.TOPLEFT:
-				hmRasterF32.YFlip();
-				break;
-			case Orientation.BOTLEFT:
-				break;
-			default:
-				Util.Error("Unsupported height map orientation {0}", hmHeader.orientation);
-				break;
-			}
-
-			Util.Log("Converting float32 height map to uint16 raw Unity asset.");
-
-			hmRasterF32 = processHeightMapData(hmRasterF32);
-
-			hmF32ToU16SampleTrans = (float)-hmMinVal;
-			hmF32ToU16SampleScale = (float)((Math.Pow(2.0, hmRasterU16.bitsPerPixel) - 1) / (hmMaxVal + hmF32ToU16SampleTrans));
-
-			hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
-
-			string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
-
-			writeHMRawOut(hmRawOutPath, hmRasterU16);
-
-			Util.Log("");
-			Util.Log("Ouput Raw Height Map: {0}", hmRawOutPath);
-			Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
-			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
-			Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
-			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
-			Util.Log("");
-		}
-
-		void processRGBImage() {
-			Util.Log("Converting RGB image to Unity ready asset.");
-
-			var rgbRaster = new Raster<ColorU8>();
-
-			rgbOutBPP = rgbRaster.bitsPerPixel;
-
-			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
-
-			rgbRaster = processRGBData(rgbRaster);
-
-			string rgbTiffOutPath = genRGBTiffOutPath((VectorD2)0, rgbRaster);
-				
-			writeRGBTiffOut(rgbTiffOutPath, rgbRaster, rgbHeader.orientation);
-
-			VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
-
-			Util.Log("");
-			Util.Log("Output RGB Image: {0}", rgbTiffOutPath);
-			Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
-			Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
-			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-			Util.Log("");
 		}
 
 		static Tiff loadGeoTiffHeader(GeoTiffHeader hdr, string path) {
@@ -270,6 +291,8 @@ namespace GeoTiff2Unity {
 			hdr.tiePoints = GeoKeyDir.GetModelTiePoints(tiff);
 			hdr.geoKeys = GeoKeyDir.GetGeoKeyDir(tiff);
 			hdr.rowsPerStrip = tiff.IsTiled() ? 0 : tiff.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
+
+			Util.Log("  Pix to geo proj scale: {0} {1}", hdr.pixToProjScale, hdr.geoKeys.projLinearUnit);
 
 			if (hdr.sizePix.Min() < 0) {
 				Util.Error("{0} has invalid image size {1}", path, hdr.sizePix);
@@ -327,13 +350,6 @@ namespace GeoTiff2Unity {
 				}
 			}
 
-			// crop to bottom right (for now)
-			hmRasterF32 = hmRasterF32.Clone(hmRasterF32.GetSizePix() - hmCropSizePix, hmCropSizePix);
-
-			if (hmOutSizePix != hmCropSizePix) {
-				hmRasterF32 = hmRasterF32.Scaled(hmOutSizePix);
-			}
-
 			hmMinVal = float.MaxValue;
 			hmMaxVal = float.MinValue;
 			for (int i = 0; i < hmRasterF32.pixels.Length; i++) {
@@ -346,27 +362,10 @@ namespace GeoTiff2Unity {
 		}
 
 		Raster<ColorU8> processRGBData(Raster<ColorU8> rgbRaster) {
-			Util.Log("Trimming RGB image to {0} to match height map.", rgbCropSizePix);
-
-			rgbRaster = rgbRaster.Clone(rgbRaster.GetSizePix() - rgbCropSizePix, rgbCropSizePix);
-
-			// do the easy 2:1 reductions in integer space
-			while (rgbRaster.width >= rgbOutSizePix.x * 2) {
-				Util.Log("RGB image size {0} exceeds out size {1} >= 2:1. Halving to {2}",
-					rgbRaster.GetSizePix(), rgbOutSizePix, (rgbRaster.GetSizePix() / 2).Truncate());
-				rgbRaster = rgbRaster.ScaledDown2to1();
-			}
-
-			// do the last fractional scaling down in float space
-			if (rgbRaster.GetSizePix() != rgbOutSizePix) {
-				Util.Log("Scaling RGB image from {0} to {1}.", rgbRaster.GetSizePix(), rgbOutSizePix);
-				rgbRaster.Convert(new Raster<ColorF32>()).Scaled(rgbOutSizePix).Convert(rgbRaster);
-			}
-
 			return rgbRaster;
 		}
 
-		void writeRGBTiffOut(string path, Raster<ColorU8> rgbRaster, Orientation orientation) {
+		void writeRGBTiffOut<T>(string path, Raster<T> rgbRaster, Orientation orientation) where T : struct {
 			using (Tiff outRGB = Tiff.Open(path, "w")) {
 				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)rgbRaster.width);
 				outRGB.SetField(TiffTag.IMAGELENGTH, (int)rgbRaster.height);
@@ -433,7 +432,6 @@ namespace GeoTiff2Unity {
 		Tiff hmTiffIn = null;
 		GeoTiffHeader hmHeader = new GeoTiffHeader();
 
-		VectorD2 hmCropSizePix = (VectorD2)0;
 		VectorD2 hmOutSizePix = (VectorD2)0;
 		uint hmOutBPP = 0;
 
@@ -446,7 +444,6 @@ namespace GeoTiff2Unity {
 		Tiff rgbTiffIn = null;
 		GeoTiffHeader rgbHeader = new GeoTiffHeader();
 
-		VectorD2 rgbCropSizePix = (VectorD2)0;
 		VectorD2 rgbOutSizePix = (VectorD2)0;
 		uint rgbOutBPP = 0;
 
@@ -456,8 +453,8 @@ namespace GeoTiff2Unity {
 		//VectorD2 hmToRGBPixTrans = (VectorD2)0;
 		//VectorD2 rgbToHMPixTrans = (VectorD2)0;
 
-		VectorD2 hmOutTileSize = (VectorD2)0;
-		VectorD2 rgbOutTileSize = (VectorD2)0;
+		VectorD2 hmOutTileSizePix = (VectorD2)0;
+		VectorD2 rgbOutTileSizePix = (VectorD2)0;
 	}
 
 	public static class RasterExt {

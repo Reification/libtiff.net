@@ -34,10 +34,10 @@ namespace GeoTiff2Unity {
 						if(nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !uint.TryParse(nameValPair[1], out cnv.hmMaxTexSizeOut) || 
-									cnv.hmMaxTexSizeOut < Converter.kMinHeightTexSize ||
-									cnv.hmMaxTexSizeOut > Converter.kMaxHeightTexSize ||
-									((cnv.hmMaxTexSizeOut - 1) & (cnv.hmMaxTexSizeOut - 2)) != 0)
+						if ( !uint.TryParse(nameValPair[1], out cnv.hmOutMaxTexSize) || 
+									cnv.hmOutMaxTexSize < Converter.kMinHeightTexSize ||
+									cnv.hmOutMaxTexSize > Converter.kMaxHeightTexSize ||
+									((cnv.hmOutMaxTexSize - 1) & (cnv.hmOutMaxTexSize - 2)) != 0)
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
 						}
@@ -46,9 +46,9 @@ namespace GeoTiff2Unity {
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !uint.TryParse(nameValPair[1], out cnv.rgbMaxTexSizeOut) || 
-									cnv.rgbMaxTexSizeOut < Converter.kMinRGBTexSize ||
-									cnv.rgbMaxTexSizeOut > Converter.kMaxRGBTexSize )
+						if ( !uint.TryParse(nameValPair[1], out cnv.rgbOutMaxTexSize) || 
+									cnv.rgbOutMaxTexSize < Converter.kMinRGBTexSize ||
+									cnv.rgbOutMaxTexSize > Converter.kMaxRGBTexSize )
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
 						}
