@@ -12,12 +12,17 @@ using BitMiracle.LibTiff.Classic;
 //
 
 namespace GeoTiff2Unity {
+	using GTHeightRaster = Raster<float>;
+	using RawHeightRaster = Raster<ushort>;
+	using ColorRaster = Raster<ColorU8>;
+
 	public class Converter {
 		public const uint kMaxUnityTexSize = 8 * 1024;
+		public const uint kBCBlockSize = 4;
 
 		public const uint kMinRGBTexSize = 512;
 		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
-
+		public const bool kDefaultRGBScaleToEvenBCBlockSize = true;
 		public const uint kMinHeightTexSize = 65;
 		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
 
@@ -27,6 +32,7 @@ namespace GeoTiff2Unity {
 
 		public uint hmOutMaxTexSize = kMaxHeightTexSize;
 		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
+		public bool rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -109,18 +115,19 @@ namespace GeoTiff2Unity {
 		}
 
 		void processHeightMap() {
-			var hmRasterU16 = new Raster<ushort>();
-			hmOutBPP = hmRasterU16.bitsPerPixel;
+			var hmRasterOut = new RawHeightRaster();
+			float hmGT2RawSampleTrans = 0.0f;
+			float hmGT2RawSampleScale = 0.0f;
 
 			{
-				var hmRasterF32 = new Raster<float>();
+				var hmRasterIn = new GTHeightRaster();
 
-				loadPixelData(ref hmTiffIn, hmHeader, hmRasterF32);
+				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
 				// Unity height map textures are (by default) bottom to top.
 				switch (hmHeader.orientation) {
 				case Orientation.TOPLEFT:
-					hmRasterF32.YFlip();
+					hmRasterIn.YFlip();
 					break;
 				case Orientation.BOTLEFT:
 					break;
@@ -131,12 +138,12 @@ namespace GeoTiff2Unity {
 
 				Util.Log("Converting float32 height map to uint16 Unity ready {0} sized tiles.", hmOutTileSizePix);
 
-				hmRasterF32 = processHeightMapData(hmRasterF32);
+				hmRasterIn = processHeightMapData(hmRasterIn);
 
-				hmF32ToU16SampleTrans = (float)-hmMinVal;
-				hmF32ToU16SampleScale = (float)((Math.Pow(2.0, hmRasterU16.bitsPerPixel) - 1) / (hmMaxVal + hmF32ToU16SampleTrans));
+				hmGT2RawSampleTrans = (float)-hmHeader.minSampleValue;
+				hmGT2RawSampleScale = (float)((Math.Pow(2.0, hmRasterOut.bitsPerPixel) - 1) / (hmHeader.maxSampleValue + hmGT2RawSampleTrans));
 
-				hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
+				hmRasterIn.Convert(hmRasterOut, hmGT2RawSampleTrans, hmGT2RawSampleScale);
 			}
 
 			VectorD2 hmTileCoords = (VectorD2)0;
@@ -147,9 +154,9 @@ namespace GeoTiff2Unity {
 				hmTileCoords.x = 0;
 				hmTileOrigin.x = 0;
 				for ( ; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; hmTileCoords.x++) {
-					var hmTile = hmRasterU16.Clone(hmTileOrigin, hmOutTileSizePix);
+					var hmTile = hmRasterOut.Clone(hmTileOrigin, hmOutTileSizePix);
 					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTile);
-					writeHMRawOut(hmTileOutPath, hmRasterU16);
+					writeHMRawOut(hmTileOutPath, hmTile);
 					Util.Log("  wrote tile {0}", hmTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					tileCount++;
@@ -157,30 +164,17 @@ namespace GeoTiff2Unity {
 				hmTileOrigin.y += hmOutTileSizePix.y;
 			}
 
-			//string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
+			float projMinV = (float)(hmHeader.minSampleValue * hmHeader.pixToProjScale.z);
+			float projMaxV = (float)(hmHeader.maxSampleValue * hmHeader.pixToProjScale.z);
 
-			//writeHMRawOut(hmRawOutPath, hmRasterU16);
-
-			//VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
-			//float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
-			//float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
-
-			//Util.Log("");
-			//Util.Log("Ouput Raw Height Map: {0} {1} tiles", tileCount, hmOutTileSizePix);
-			//Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
-			//Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
-			//Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
-			//Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-			//Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
-			//Util.Log("");
+			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmHeader.maxSampleValue + hmGT2RawSampleTrans) * hmGT2RawSampleScale + 0.5f));
+			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
 		}
 
 		void processRGBImage() {
 			VectorD2 rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
 
-			var rgbRaster = new Raster<ColorU8>();
-
-			rgbOutBPP = rgbRaster.bitsPerPixel;
+			var rgbRaster = new ColorRaster();
 
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
@@ -192,11 +186,12 @@ namespace GeoTiff2Unity {
 			VectorD2 rgbTileCoords = (VectorD2)0;
 			VectorD2 rgbTileOrigin = (VectorD2)0;
 
-			VectorD2 bc7TileSizePix = (rgbOutTileSizePix / 4).Ceiling() * 4;
+			VectorD2 bcTileSizePix = (rgbOutTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
 
-			if (rgbOutTileSizePix != bc7TileSizePix) {
-				Util.Log("  RGB tiles will be scaled to next multiple of 4 {0} for compatibility with block compression algorithms.",
-					bc7TileSizePix);
+			if (rgbScaleToEvenBCBlockSize && rgbOutTileSizePix != bcTileSizePix) {
+				Util.Log("  RGB tiles will be scaled to multiple of {0} {1} for compatibility with block compression algorithms.",
+					kBCBlockSize,
+					bcTileSizePix);
 			}
 
 			uint tileCount = 0;
@@ -208,8 +203,8 @@ namespace GeoTiff2Unity {
 				for (; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; rgbTileCoords.x++) {
 					var rgbTile = rgbRaster.Clone(rgbTileOrigin, rgbOutTileSizePix);
 
-					if ( rgbOutTileSizePix != bc7TileSizePix ) {
-						rgbTile = rgbTile.Scaled( bc7TileSizePix );
+					if ( rgbScaleToEvenBCBlockSize && rgbOutTileSizePix != bcTileSizePix ) {
+						rgbTile = rgbTile.Scaled( bcTileSizePix );
 					}
 
 					string rgbTileOutPath = genRGBTiffOutPath(rgbTileCoords, rgbTile);
@@ -221,6 +216,10 @@ namespace GeoTiff2Unity {
 				}
 				hmTileOrigin.y += hmOutTileSizePix.y;
 				rgbTileOrigin.y += rgbOutTileSizePix.y;
+			}
+
+			if ( rgbTileOrigin != rgbOutTileSizePix ) {
+
 			}
 
 			//
@@ -244,6 +243,46 @@ namespace GeoTiff2Unity {
 		static double calcHeightMapSizeLTE(double curSize) {
 			// Unity height maps must be size 2^N + 1 
 			return Math.Pow(2.0, Math.Floor(Math.Log(curSize) / Math.Log(2.0))) + 1.0;
+		}
+
+		GTHeightRaster processHeightMapData(GTHeightRaster hmRaster) {
+			int noDataCount = 0;
+
+			if (hmHeader.minSampleValue == 0 && hmHeader.maxSampleValue == 0) {
+				var minV = hmRaster.pixels[0];
+				var maxV = minV;
+
+				for (int i = 1; i < hmRaster.pixels.Length; i++) {
+					var p = hmRaster.pixels[i];
+					minV = Math.Min(p, minV);
+					maxV = Math.Max(p, maxV);
+				}
+
+				hmHeader.minSampleValue = minV;
+				hmHeader.maxSampleValue = maxV;
+			}
+
+			var noDataValue = (float)hmHeader.noSampleValue;
+
+			for (int i = 0; i < hmRaster.pixels.Length; i++) {
+				var p = hmRaster.pixels[i];
+
+				if (p == noDataValue) {
+					noDataCount++;
+					hmRaster.pixels[i] = (float)hmHeader.minSampleValue;
+				}
+			}
+
+			if (noDataCount > 0) {
+				Util.Warn("  Replaced {0} no-data pixels with minValue {1}", noDataCount, (float)hmHeader.minSampleValue);
+				Util.Warn("  If this is more than infrequent we will need a masking strategy.");
+			}
+
+			return hmRaster;
+		}
+
+		ColorRaster processRGBData(ColorRaster rgbRaster) {
+			return rgbRaster;
 		}
 
 		void computeAlignment() {
@@ -347,6 +386,12 @@ namespace GeoTiff2Unity {
 			hdr.geoKeys = GeoKeyDir.GetGeoKeyDir(tiff);
 			hdr.rowsPerStrip = tiff.IsTiled() ? 0 : tiff.GetField(TiffTag.ROWSPERSTRIP)[0].ToInt();
 
+			var minValField = tiff.GetField(TiffTag.MINSAMPLEVALUE);
+			var maxValField = tiff.GetField(TiffTag.MAXSAMPLEVALUE);
+			hdr.minSampleValue = minValField != null ? (float)minValField[0].ToDouble() : 0;
+			hdr.maxSampleValue = maxValField != null ? (float)maxValField[0].ToDouble() : 0;
+			hdr.noSampleValue = getGdalNoData(tiff);
+
 			Util.Log("  Pix to geo proj scale: {0} {1}", hdr.pixToProjScale, hdr.geoKeys.projLinearUnit);
 
 			if (hdr.sizePix.Min() < 0) {
@@ -391,35 +436,6 @@ namespace GeoTiff2Unity {
 			tiff = null;
 		}
 
-		Raster<float> processHeightMapData(Raster<float> hmRasterF32) {
-			{
-				int noDataCount = 0;
-				for (int i = 0; i < hmRasterF32.pixels.Length; i++) {
-					if (hmRasterF32.pixels[i] == hmNoDataValue) {
-						hmRasterF32.pixels[i] = (float)hmMinVal;
-						noDataCount++;
-					}
-				}
-				if (noDataCount > 0) {
-					Util.Warn("Replaced {0} no-data pixels with minValue {1}", noDataCount, hmMinVal);
-				}
-			}
-
-			hmMinVal = float.MaxValue;
-			hmMaxVal = float.MinValue;
-			for (int i = 0; i < hmRasterF32.pixels.Length; i++) {
-				var p = hmRasterF32.pixels[i];
-				hmMinVal = Math.Min(hmMinVal, p);
-				hmMaxVal = Math.Max(hmMaxVal, p);
-			}
-
-			return hmRasterF32;
-		}
-
-		Raster<ColorU8> processRGBData(Raster<ColorU8> rgbRaster) {
-			return rgbRaster;
-		}
-
 		void writeRGBTiffOut<T>(string path, Raster<T> rgbRaster, Orientation orientation) where T : struct {
 			using (Tiff outRGB = Tiff.Open(path, "w")) {
 				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)rgbRaster.width);
@@ -448,10 +464,12 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		void writeHMRawOut(string path, Raster<ushort> hmRasterU16) {
+		void writeHMRawOut(string path, RawHeightRaster hmRaster) {
 			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
-				outFile.Write(hmRasterU16.ToByteArray(), 0, (int)hmRasterU16.sizeBytes);
+				outFile.Write(hmRaster.ToByteArray(), 0, (int)hmRaster.sizeBytes);
 			}
+			// enable when debugging height tile output.
+			// writeRGBTiffOut(path.Replace(".raw", ".tif"), hmRaster, Orientation.BOTLEFT);
 		}
 
 		static double[] getModelTransformation(Tiff tif) {
@@ -472,13 +490,13 @@ namespace GeoTiff2Unity {
 			return int.MinValue;
 		}
 
-		string genHMRawOutPath(VectorD2 tilePos, Raster<ushort> hmRaster) {
+		string genHMRawOutPath(VectorD2 tilePos, RawHeightRaster hmRaster) {
 			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}-{4:D2}.raw";
 			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.x, (uint)tilePos.y);
 			return path;
 		}
 
-		string genRGBTiffOutPath(VectorD2 tilePos, Raster<ColorU8> rgbRaster) {
+		string genRGBTiffOutPath(VectorD2 tilePos, ColorRaster rgbRaster) {
 			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}-{1:D2}.tif";
 			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.x, (uint)tilePos.y);
 			return path;
@@ -488,19 +506,11 @@ namespace GeoTiff2Unity {
 		GeoTiffHeader hmHeader = new GeoTiffHeader();
 
 		VectorD2 hmOutSizePix = (VectorD2)0;
-		uint hmOutBPP = 0;
-
-		float hmMinVal = 0;
-		float hmMaxVal = 0;
-		float hmNoDataValue = 0;
-		float hmF32ToU16SampleTrans = 0;
-		float hmF32ToU16SampleScale = 0;
 
 		Tiff rgbTiffIn = null;
 		GeoTiffHeader rgbHeader = new GeoTiffHeader();
 
 		VectorD2 rgbOutSizePix = (VectorD2)0;
-		uint rgbOutBPP = 0;
 
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
 		VectorD2 rgbToHMPixScale = (VectorD2)0;
@@ -554,5 +564,8 @@ namespace GeoTiff2Unity {
 		public VectorD3 pixToProjScale = (VectorD3)0;
 		public TiePoint[] tiePoints = null;
 		public GeoKeyDir geoKeys = null;
+		public double minSampleValue = 0;
+		public double maxSampleValue = 0;
+		public int noSampleValue = 0;
 	}
 }
