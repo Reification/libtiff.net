@@ -150,7 +150,7 @@ namespace GeoTiff2Unity {
 					var hmTile = hmRasterU16.Clone(hmTileOrigin, hmOutTileSizePix);
 					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTile);
 					writeHMRawOut(hmTileOutPath, hmRasterU16);
-					Util.Log("  wrote height map tile {0}", hmTileOutPath);
+					Util.Log("  wrote tile {0}", hmTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					tileCount++;
 				}
@@ -178,13 +178,13 @@ namespace GeoTiff2Unity {
 		void processRGBImage() {
 			VectorD2 rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
 
-			Util.Log("Converting RGB image to rgb tiff Unity ready {0} sized tiles.", rgbOutTileSizePix);
-
 			var rgbRaster = new Raster<ColorU8>();
 
 			rgbOutBPP = rgbRaster.bitsPerPixel;
 
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
+
+			Util.Log("Converting RGB image to rgb tiff Unity ready {0} sized tiles.", rgbOutTileSizePix);
 
 			rgbRaster = processRGBData(rgbRaster);
 
@@ -192,16 +192,29 @@ namespace GeoTiff2Unity {
 			VectorD2 rgbTileCoords = (VectorD2)0;
 			VectorD2 rgbTileOrigin = (VectorD2)0;
 
+			VectorD2 bc7TileSizePix = (rgbOutTileSizePix / 4).Ceiling() * 4;
+
+			if (rgbOutTileSizePix != bc7TileSizePix) {
+				Util.Log("  RGB tiles will be scaled to next multiple of 4 {0} for compatibility with block compression algorithms.",
+					bc7TileSizePix);
+			}
+
 			uint tileCount = 0;
 			for (; (hmTileOrigin.y + hmOutTileSizePix.y) < hmOutSizePix.y; rgbTileCoords.y++) {
 				hmTileOrigin.x = 0;
 				rgbTileCoords.x = 0;
 				rgbTileOrigin.x = 0;
+
 				for (; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; rgbTileCoords.x++) {
 					var rgbTile = rgbRaster.Clone(rgbTileOrigin, rgbOutTileSizePix);
+
+					if ( rgbOutTileSizePix != bc7TileSizePix ) {
+						rgbTile = rgbTile.Scaled( bc7TileSizePix );
+					}
+
 					string rgbTileOutPath = genRGBTiffOutPath(rgbTileCoords, rgbTile);
 					writeRGBTiffOut(rgbTileOutPath, rgbTile, rgbHeader.orientation);
-					Util.Log("  wrote rgb texture tile {0}", rgbTileOutPath);
+					Util.Log("  wrote tile {0}", rgbTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					rgbTileOrigin.x += rgbOutTileSizePix.x;
 					tileCount++;
@@ -519,6 +532,14 @@ namespace GeoTiff2Unity {
 		}
 
 		public static Raster<ColorF32> Scaled(this Raster<ColorF32> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+
+		public static Raster<ushort> Scaled(this Raster<ushort> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+
+		public static Raster<ColorU8> Scaled(this Raster<ColorU8> src, VectorD2 sizePix) {
 			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
 		}
 	}

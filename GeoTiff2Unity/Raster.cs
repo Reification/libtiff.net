@@ -451,7 +451,36 @@ namespace GeoTiff2Unity {
 			return scaledDown(src, w, h);
 		}
 
-		public static Raster<ColorU8> ScaledDown2to1(this Raster<ColorU8> src) {
+		public static Raster<ushort> Scaled(this Raster<ushort> src, uint w, uint h) {
+			Raster<ushort> dst = src;
+
+			while ((w << 1) >= dst.width && (h << 1) >= dst.height) {
+				dst = dst.scaledDown2to1();
+			}
+
+			if (dst.width != w || dst.height != h) {
+				dst = dst.Convert(new Raster<float>()).Scaled(w, h).Convert(dst);
+			}
+
+			return dst;
+		}
+
+
+		public static Raster<ColorU8> Scaled(this Raster<ColorU8> src, uint w, uint h) {
+			Raster<ColorU8> dst = src;
+
+			while ((w * 2) <= dst.width && (h * 2) <= dst.height) {
+				dst = dst.scaledDown2to1();
+			}
+
+			if ( dst.width != w || dst.height != h ) {
+				dst = dst.Convert(new Raster<ColorF32>()).Scaled(w, h).Convert(dst);
+			}
+
+			return dst;
+		}
+
+		static Raster<ColorU8> scaledDown2to1(this Raster<ColorU8> src) {
 			var dst = new Raster<ColorU8>(src.width / 2, src.height / 2);
 			var accumRow = new ColorU16[dst.width];
 
@@ -470,6 +499,31 @@ namespace GeoTiff2Unity {
 				for (uint dstX = 0; dstX < dst.width; dstX++) {
 					dst.pixels[dstR + dstX] = accumRow[dstX].divBy4U8();
 					accumRow[dstX] = ColorU16.zero;
+				}
+			}
+
+			return dst;
+		}
+
+		static Raster<ushort> scaledDown2to1(this Raster<ushort> src) {
+			var dst = new Raster<ushort>(src.width / 2, src.height / 2);
+			var accumRow = new uint[dst.width];
+
+			for (uint i = 0; i < accumRow.Length; i++) {
+				accumRow[i] = 0;
+			}
+
+			for (uint dstR = 0, srcR = 0, endDstR = dst.width * dst.height; dstR < endDstR; dstR += dst.width) {
+				for (int i = 0; i < 2; i++) {
+					for (uint dstX = 0, srcX = 0; dstX < dst.width; dstX++, srcX += 2) {
+						accumRow[dstX] += src.pixels[srcR + srcX];
+						accumRow[dstX] += src.pixels[srcR + srcX + 1];
+					}
+					srcR += src.width;
+				}
+				for (uint dstX = 0; dstX < dst.width; dstX++) {
+					dst.pixels[dstR + dstX] = (ushort)(accumRow[dstX] >> 2);
+					accumRow[dstX] = 0;
 				}
 			}
 
