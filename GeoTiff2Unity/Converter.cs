@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
 
 //
@@ -24,8 +25,8 @@ namespace GeoTiff2Unity {
 		public string rgbTiffInPath = null;
 		public string outPathBase = null;
 
-		public uint hmOutMaxTexSize = kMaxRGBTexSize;
-		public uint rgbOutMaxTexSize = kMaxHeightTexSize;
+		public uint hmOutMaxTexSize = kMaxHeightTexSize;
+		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -83,17 +84,21 @@ namespace GeoTiff2Unity {
 			hmOutSizePix = hmHeader.sizePix;
 			rgbOutSizePix = rgbHeader.sizePix;
 
+			/// HACK!
+			rgbHeader.pixToProjScale = (VectorD2)((VectorD2)(rgbHeader.pixToProjScale)).Max();
+
 			hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
 			rgbToHMPixScale = rgbHeader.pixToProjScale / hmHeader.pixToProjScale;
 
 			computeAlignment();
 
 			hmOutTileSizePix = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmOutSizePix.Min()), hmOutMaxTexSize);
-			rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
+
+			VectorD2 rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
 
 			while (rgbOutTileSizePix.Max() > rgbOutMaxTexSize) {
 				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 2);
-				rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
+				rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
 			}
 
 			VectorD2 tileCounts = (hmOutSizePix / hmOutTileSizePix).Ceiling();
@@ -124,7 +129,7 @@ namespace GeoTiff2Unity {
 					break;
 				}
 
-				Util.Log("Converting float32 height map to uint16 raw Unity asset.");
+				Util.Log("Converting float32 height map to uint16 Unity ready {0} sized tiles.", hmOutTileSizePix);
 
 				hmRasterF32 = processHeightMapData(hmRasterF32);
 
@@ -134,31 +139,46 @@ namespace GeoTiff2Unity {
 				hmRasterF32.Convert(hmRasterU16, hmF32ToU16SampleTrans, hmF32ToU16SampleScale);
 			}
 
+			VectorD2 hmTileCoords = (VectorD2)0;
+			VectorD2 hmTileOrigin = (VectorD2)0;
 
-			//
-			// TODO: walk the output tiles
-			//
+			uint tileCount = 0;
+			for ( ; (hmTileOrigin.y + hmOutTileSizePix.y) < hmOutSizePix.y; hmTileCoords.y++) {
+				hmTileCoords.x = 0;
+				hmTileOrigin.x = 0;
+				for ( ; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; hmTileCoords.x++) {
+					var hmTile = hmRasterU16.Clone(hmTileOrigin, hmOutTileSizePix);
+					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTile);
+					writeHMRawOut(hmTileOutPath, hmRasterU16);
+					Util.Log("  wrote height map tile {0}", hmTileOutPath);
+					hmTileOrigin.x += hmOutTileSizePix.x;
+					tileCount++;
+				}
+				hmTileOrigin.y += hmOutTileSizePix.y;
+			}
 
-			string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
+			//string hmRawOutPath = genHMRawOutPath((VectorD2)0, hmRasterU16);
 
-			writeHMRawOut(hmRawOutPath, hmRasterU16);
+			//writeHMRawOut(hmRawOutPath, hmRasterU16);
 
-			VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
-			float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
-			float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
+			//VectorD2 projSizeM = hmOutSizePix * (VectorD2)hmHeader.pixToProjScale;
+			//float projMinV = (float)(hmMinVal * hmHeader.pixToProjScale.z);
+			//float projMaxV = (float)(hmMaxVal * hmHeader.pixToProjScale.z);
 
-			Util.Log("");
-			Util.Log("Ouput Raw Height Map: {0}", hmRawOutPath);
-			Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
-			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
-			Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
-			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
-			Util.Log("");
+			//Util.Log("");
+			//Util.Log("Ouput Raw Height Map: {0} {1} tiles", tileCount, hmOutTileSizePix);
+			//Util.Log("  Dimensions: {0} {1} bit pix", hmOutSizePix, hmOutBPP);
+			//Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmMaxVal + hmF32ToU16SampleTrans) * hmF32ToU16SampleScale + 0.5f));
+			//Util.Log("  Pix to geo proj scale: {0}", hmHeader.pixToProjScale);
+			//Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			//Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
+			//Util.Log("");
 		}
 
 		void processRGBImage() {
-			Util.Log("Converting RGB image to Unity ready asset.");
+			VectorD2 rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
+
+			Util.Log("Converting RGB image to rgb tiff Unity ready {0} sized tiles.", rgbOutTileSizePix);
 
 			var rgbRaster = new Raster<ColorU8>();
 
@@ -168,22 +188,44 @@ namespace GeoTiff2Unity {
 
 			rgbRaster = processRGBData(rgbRaster);
 
+			VectorD2 hmTileOrigin = (VectorD2)0;
+			VectorD2 rgbTileCoords = (VectorD2)0;
+			VectorD2 rgbTileOrigin = (VectorD2)0;
+
+			uint tileCount = 0;
+			for (; (hmTileOrigin.y + hmOutTileSizePix.y) < hmOutSizePix.y; rgbTileCoords.y++) {
+				hmTileOrigin.x = 0;
+				rgbTileCoords.x = 0;
+				rgbTileOrigin.x = 0;
+				for (; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; rgbTileCoords.x++) {
+					var rgbTile = rgbRaster.Clone(rgbTileOrigin, rgbOutTileSizePix);
+					string rgbTileOutPath = genRGBTiffOutPath(rgbTileCoords, rgbTile);
+					writeRGBTiffOut(rgbTileOutPath, rgbTile, rgbHeader.orientation);
+					Util.Log("  wrote rgb texture tile {0}", rgbTileOutPath);
+					hmTileOrigin.x += hmOutTileSizePix.x;
+					rgbTileOrigin.x += rgbOutTileSizePix.x;
+					tileCount++;
+				}
+				hmTileOrigin.y += hmOutTileSizePix.y;
+				rgbTileOrigin.y += rgbOutTileSizePix.y;
+			}
+
 			//
 			// TODO: walk the output tiles
 			//
 
-			string rgbTiffOutPath = genRGBTiffOutPath((VectorD2)0, rgbRaster);
+			//string rgbTiffOutPath = genRGBTiffOutPath((VectorD2)0, rgbRaster);
 
-			writeRGBTiffOut(rgbTiffOutPath, rgbRaster, rgbHeader.orientation);
+			//writeRGBTiffOut(rgbTiffOutPath, rgbRaster, rgbHeader.orientation);
 
-			VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
+			//VectorD2 projSizeM = rgbOutSizePix * (VectorD2)rgbHeader.pixToProjScale;
 
-			Util.Log("");
-			Util.Log("Output RGB Image: {0}", rgbTiffOutPath);
-			Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
-			Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
-			Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
-			Util.Log("");
+			//Util.Log("");
+			//Util.Log("Output RGB Image: {0}", rgbTiffOutPath);
+			//Util.Log("  Dimensions: {0} {1} bit pix", rgbOutSizePix, rgbOutBPP);
+			//Util.Log("  Pix to geo proj scale: {0}", (VectorD2)rgbHeader.pixToProjScale);
+			//Util.Log("  Geo proj size: {0} {1}", projSizeM, hmHeader.geoKeys.projLinearUnit);
+			//Util.Log("");
 		}
 
 		static double calcHeightMapSizeLTE(double curSize) {
@@ -418,13 +460,13 @@ namespace GeoTiff2Unity {
 		}
 
 		string genHMRawOutPath(VectorD2 tilePos, Raster<ushort> hmRaster) {
-			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}{4:D2}.raw";
+			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}-{4:D2}.raw";
 			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.x, (uint)tilePos.y);
 			return path;
 		}
 
 		string genRGBTiffOutPath(VectorD2 tilePos, Raster<ColorU8> rgbRaster) {
-			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}{1:D2}.tif";
+			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}-{1:D2}.tif";
 			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.x, (uint)tilePos.y);
 			return path;
 		}
@@ -453,8 +495,10 @@ namespace GeoTiff2Unity {
 		//VectorD2 hmToRGBPixTrans = (VectorD2)0;
 		//VectorD2 rgbToHMPixTrans = (VectorD2)0;
 
+		/// @TODO: sizes for additional horizontal and verticlal tiles
+		/// to cover as much of heightmap as can be done with sums of legally sized tiles.
 		VectorD2 hmOutTileSizePix = (VectorD2)0;
-		VectorD2 rgbOutTileSizePix = (VectorD2)0;
+		List<VectorD2> hmSubTileSizePixList = new List<VectorD2>();
 	}
 
 	public static class RasterExt {

@@ -23,6 +23,10 @@ namespace GeoTiff2Unity {
 			return new VectorD2 { x = Math.Floor(x), y = Math.Floor(y) };
 		}
 
+		public VectorD2 Round() {
+			return new VectorD2 { x = Math.Round(x), y = Math.Round(y) };
+		}
+
 		public double Min() {
 			return Math.Min(x, y);
 		}
@@ -97,6 +101,14 @@ namespace GeoTiff2Unity {
 		public double height { get { return y; } }
 		public double depth { get { return z; } }
 
+		public double Min() {
+			return Math.Min(x, Math.Min(y, z));
+		}
+
+		public double Max() {
+			return Math.Max(x, Math.Max(y, z));
+		}
+
 		public VectorD3 Truncate() {
 			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
 		}
@@ -107,6 +119,10 @@ namespace GeoTiff2Unity {
 
 		public VectorD3 Floor() {
 			return new VectorD3 { x = Math.Floor(x), y = Math.Floor(y), z = Math.Floor(z) };
+		}
+
+		public VectorD3 Round() {
+			return new VectorD3 { x = Math.Round(x), y = Math.Round(y), z = Math.Round(z) };
 		}
 
 		public override string ToString() {
