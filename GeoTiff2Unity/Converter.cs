@@ -1,4 +1,8 @@
-﻿using System;
+﻿// normally only raw format height tiles are saved.
+// enable to save height tiles in tiff format as well.
+// useful for debugging height tile output. unity does not handle tiff for import.
+#undef SAVE_TIFF_HEIGHT_TILES
+using System;
 using System.IO;
 using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
@@ -160,6 +164,9 @@ namespace GeoTiff2Unity {
 					Util.Log("  wrote tile {0}", hmTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					tileCount++;
+#if SAVE_TIFF_HEIGHT_TILES
+					writeRGBTiffOut(hmTileOutPath.Replace(".raw", ".tif"), hmTile, Orientation.BOTLEFT);
+#endif
 				}
 				hmTileOrigin.y += hmOutTileSizePix.y;
 			}
@@ -468,8 +475,6 @@ namespace GeoTiff2Unity {
 			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
 				outFile.Write(hmRaster.ToByteArray(), 0, (int)hmRaster.sizeBytes);
 			}
-			// enable when debugging height tile output.
-			// writeRGBTiffOut(path.Replace(".raw", ".tif"), hmRaster, Orientation.BOTLEFT);
 		}
 
 		static double[] getModelTransformation(Tiff tif) {
