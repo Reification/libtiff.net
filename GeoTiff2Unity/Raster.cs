@@ -13,8 +13,10 @@ namespace GeoTiff2Unity {
 	}
 
 	public class Raster<T> where T : struct {
-		public static readonly uint pixSizeBytes = pixTypeSizeBytes();
-		public static readonly uint pixChannelCount = pixTypeChannelCount();
+		public static readonly uint pixSizeBytes = getPixTypeSizeBytes();
+		public static readonly uint pixChannelCount = getPixTypeChannelCount();
+		public static readonly Type pixType = typeof(T);
+		public static readonly Type pixChannelType = getPixChannelType();
 
 		public uint bytesPerPixel { get { return pixSizeBytes; } }
 		public uint bytesPerChannel { get { return (pixSizeBytes / pixChannelCount); } }
@@ -23,6 +25,9 @@ namespace GeoTiff2Unity {
 		public uint bitsPerChannel {  get { return bytesPerChannel * 8; } }
 
 		public uint channelCount {  get { return pixChannelCount; } }
+
+		public Type pixelType { get { return pixType; } }
+		public Type channelType {  get { return pixChannelType; } }
 
 		public Raster() {
 			width = height = pitch = 0;
@@ -187,12 +192,36 @@ namespace GeoTiff2Unity {
 			pixels = newPixels;
 		}
 
-		private static uint pixTypeSizeBytes() {
+		private static uint getPixTypeSizeBytes() {
 			return (uint)Marshal.SizeOf(typeof(T));
 		}
 
-		private static uint pixTypeChannelCount() {
+		private static uint getPixTypeChannelCount() {
 			return (typeof(T).IsPrimitive ? 1u : 3u);
+		}
+
+		private static Type getPixChannelType() {
+			Type t = typeof(T);
+			if (t.IsByRef) {
+				throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of public primitives.", t));
+			}
+			if ( t.IsPrimitive ) {
+				return t;
+			}
+
+			var fields = t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic );
+
+			if ( !fields[0].FieldType.IsPrimitive || !fields[0].IsPublic ) {
+				throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of identical public primitives.", t));
+			}
+
+			for (int i = 1; i < fields.Length; i++) {
+				if (fields[i].FieldType != fields[0].FieldType || !fields[i].IsPublic ) {
+					throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of identical public primitives.", t));
+				}
+			}
+
+			return fields[0].FieldType;
 		}
 	}
 
