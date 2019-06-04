@@ -487,13 +487,13 @@ namespace GeoTiff2Unity {
 
 		string genHMRawOutPath(VectorD2 tilePos, RawHeightRaster hmRaster) {
 			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}-{4:D2}.raw";
-			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.x, (uint)tilePos.y);
+			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.y, (uint)tilePos.x);
 			return path;
 		}
 
 		string genRGBTiffOutPath(VectorD2 tilePos, ColorRaster rgbRaster) {
 			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}-{1:D2}.tif";
-			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.x, (uint)tilePos.y);
+			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.y, (uint)tilePos.x);
 			return path;
 		}
 
