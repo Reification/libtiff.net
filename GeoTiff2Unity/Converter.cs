@@ -1,7 +1,7 @@
 ﻿// normally only raw format height tiles are saved.
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
-#undef SAVE_TIFF_HEIGHT_TILES
+//#define SAVE_TIFF_HEIGHT_TILES
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -128,18 +128,6 @@ namespace GeoTiff2Unity {
 
 				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
-				// Unity height map textures are (by default) bottom to top.
-				switch (hmHeader.orientation) {
-				case Orientation.TOPLEFT:
-					hmRasterIn.YFlip();
-					break;
-				case Orientation.BOTLEFT:
-					break;
-				default:
-					Util.Error("Unsupported height map orientation {0}", hmHeader.orientation);
-					break;
-				}
-
 				Util.Log("Converting float{0} geotiff height map to uint{1} Unity ready {2} sized raw tiles.", 
 					hmRasterIn.bitsPerPixel,
 					hmRasterOut.bitsPerPixel, 
@@ -153,6 +141,20 @@ namespace GeoTiff2Unity {
 				hmRasterIn.Convert(hmRasterOut, hmGT2RawSampleTrans, hmGT2RawSampleScale);
 			}
 
+			bool hmOutYFlipNeeded = false;
+
+			// Unity height map textures are (by default) bottom to top.
+			switch (hmHeader.orientation) {
+			case Orientation.TOPLEFT:
+				hmOutYFlipNeeded = true;
+				break;
+			case Orientation.BOTLEFT:
+				break;
+			default:
+				Util.Error("Unsupported height map orientation {0}", hmHeader.orientation);
+				break;
+			}
+
 			VectorD2 hmTileCoords = (VectorD2)0;
 			VectorD2 hmTileOrigin = (VectorD2)0;
 
@@ -163,13 +165,16 @@ namespace GeoTiff2Unity {
 				for ( ; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; hmTileCoords.x++) {
 					var hmTile = hmRasterOut.Clone(hmTileOrigin, hmOutTileSizePix);
 					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTile);
+#if SAVE_TIFF_HEIGHT_TILES
+					writeRGBTiffOut(hmTileOutPath.Replace(".raw", ".tif"), hmTile, Orientation.TOPLEFT);
+#endif
+					if ( hmOutYFlipNeeded ) {
+						hmTile.YFlip();
+					}
 					writeRawOut(hmTileOutPath, hmTile);
 					Util.Log("  wrote tile {0}", hmTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					tileCount++;
-#if SAVE_TIFF_HEIGHT_TILES
-					writeRGBTiffOut(hmTileOutPath.Replace(".raw", ".tif"), hmTile, Orientation.BOTLEFT);
-#endif
 				}
 				hmTileOrigin.y += hmOutTileSizePix.y;
 			}
