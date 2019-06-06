@@ -1,11 +1,12 @@
 ﻿// normally only raw format height tiles are saved.
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
-//#define SAVE_TIFF_HEIGHT_TILES
+#define SAVE_TIFF_HEIGHT_TILES
 using System;
 using System.IO;
 using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
+using System.Runtime.InteropServices;
 
 //
 // TODO: instead of resizing and just cutting off one piece
@@ -119,26 +120,22 @@ namespace GeoTiff2Unity {
 		}
 
 		void processHeightMap() {
-			var hmRasterOut = new RawHeightRaster();
-			float hmGT2RawSampleTrans = 0.0f;
-			float hmGT2RawSampleScale = 0.0f;
+			RawHeightRaster hmRasterOut = null;
 
 			{
 				var hmRasterIn = new GTHeightRaster();
-
 				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
-				Util.Log("Converting float{0} geotiff height map to uint{1} Unity ready {2} sized raw tiles.", 
-					hmRasterIn.bitsPerPixel,
-					hmRasterOut.bitsPerPixel, 
+				Util.Log("Converting {0} geotiff height map to {1} Unity ready {2} sized raw tiles.",
+					GTHeightRaster.pixelTypeName,
+					RawHeightRaster.pixelTypeName,
 					hmOutTileSizePix);
 
 				hmRasterIn = processHeightMapData(hmRasterIn);
 
-				hmGT2RawSampleTrans = (float)-hmHeader.minSampleValue;
-				hmGT2RawSampleScale = (float)((Math.Pow(2.0, hmRasterOut.bitsPerPixel) - 1) / (hmHeader.maxSampleValue + hmGT2RawSampleTrans));
-
-				hmRasterIn.Convert(hmRasterOut, hmGT2RawSampleTrans, hmGT2RawSampleScale);
+				float gtToRawTrans = (float)-hmHeader.minSampleValue;
+				float gtToRawScale = RawHeightRaster.maxChannelValue/(float)(hmHeader.maxSampleValue - hmHeader.minSampleValue);
+				hmRasterOut = hmRasterIn.Convert(new RawHeightRaster(), gtToRawTrans, gtToRawScale);
 			}
 
 			bool hmOutYFlipNeeded = false;
@@ -163,15 +160,16 @@ namespace GeoTiff2Unity {
 				hmTileCoords.x = 0;
 				hmTileOrigin.x = 0;
 				for ( ; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; hmTileCoords.x++) {
-					var hmTile = hmRasterOut.Clone(hmTileOrigin, hmOutTileSizePix);
-					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTile);
+					var hmTileRaster = hmRasterOut.Clone(hmTileOrigin, hmOutTileSizePix);
+
+					string hmTileOutPath = genHMRawOutPath(hmTileCoords, hmTileRaster);
 #if SAVE_TIFF_HEIGHT_TILES
-					writeRGBTiffOut(hmTileOutPath.Replace(".raw", ".tif"), hmTile, Orientation.TOPLEFT);
+					writeRGBTiffOut(hmTileOutPath.Replace(".r9nh", ".tif"), hmTileRaster);
 #endif
 					if ( hmOutYFlipNeeded ) {
-						hmTile.YFlip();
+						hmTileRaster.YFlip();
 					}
-					writeRawOut(hmTileOutPath, hmTile);
+					writeRareTileOut(hmTileOutPath, hmTileRaster);
 					Util.Log("  wrote tile {0}", hmTileOutPath);
 					hmTileOrigin.x += hmOutTileSizePix.x;
 					tileCount++;
@@ -182,12 +180,6 @@ namespace GeoTiff2Unity {
 			if (hmTileOrigin != hmOutSizePix) {
 				Util.Warn("  Unhandled input leftover edges {0}", hmOutSizePix - hmTileOrigin);
 			}
-
-			float projMinV = (float)(hmHeader.minSampleValue * hmHeader.pixToProjScale.z);
-			float projMaxV = (float)(hmHeader.maxSampleValue * hmHeader.pixToProjScale.z);
-
-			Util.Log("  Pix value range: {0} (0->{0})", (uint)((hmHeader.maxSampleValue + hmGT2RawSampleTrans) * hmGT2RawSampleScale + 0.5f));
-			Util.Log("  Geo vertical range: {0} ({1}->{2}) {3}", projMaxV - projMinV, projMinV, projMaxV, hmHeader.geoKeys.verticalLinearUnit);
 		}
 
 		void processRGBImage() {
@@ -438,13 +430,22 @@ namespace GeoTiff2Unity {
 			tiff = null;
 		}
 
-		void writeRGBTiffOut<T>(string path, Raster<T> raster, Orientation orientation) where T : struct {
+		void writeRareTileOut<T>(string path, Raster<T> raster) where T : struct {
+			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
+				HeightTileHeader hdr = new HeightTileHeader();
+				hdr.Init<T>(raster.width, (float)hmHeader.pixToProjScale.Max(), (float)hmHeader.minSampleValue, (float)hmHeader.maxSampleValue);
+				hdr.Write(outFile);
+				outFile.Write(raster.ToByteArray(), 0, (int)raster.sizeBytes);
+			}
+		}
+
+		void writeRGBTiffOut<T>(string path, Raster<T> raster, Orientation orientation = Orientation.TOPLEFT) where T : struct {
 			using (Tiff outRGB = Tiff.Open(path, "w")) {
 				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)raster.width);
 				outRGB.SetField(TiffTag.IMAGELENGTH, (int)raster.height);
-				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, raster.channelCount);
-				outRGB.SetField(TiffTag.BITSPERSAMPLE, raster.bitsPerChannel);
-				outRGB.SetField(TiffTag.SAMPLEFORMAT, SampleFormat.UINT);
+				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, (int)raster.getChannelCount());
+				outRGB.SetField(TiffTag.BITSPERSAMPLE, (int)raster.getBitsPerChannel());
+				outRGB.SetField(TiffTag.SAMPLEFORMAT, raster.getChannelTypeName().StartsWith("float") ? SampleFormat.IEEEFP : SampleFormat.UINT);
 				outRGB.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
 				outRGB.SetField(TiffTag.ORIENTATION, orientation);
 				outRGB.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
@@ -466,12 +467,6 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		void writeRawOut<T>(string path, Raster<T> raster) where T : struct {
-			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
-				outFile.Write(raster.ToByteArray(), 0, (int)raster.sizeBytes);
-			}
-		}
-
 		static double[] getModelTransformation(Tiff tif) {
 			FieldValue[] v = tif.GetField((TiffTag)(int)GeoTiffTag.MODELTRANSFORMATIONTAG);
 			if (v?.Length == 2 && v[0].ToInt() == 16) {
@@ -490,15 +485,28 @@ namespace GeoTiff2Unity {
 			return val;
 		}
 
+		static readonly string hmRawOutPathFmt = "{0}/.HeightMaps/{1}_HM_{2:D3}-{3:D3}.r9nh";
+		static readonly string hmRGBOutPathFmt = "{0}/{1}_RGB_{2:D3}-{3:D3}.tif";
+
 		string genHMRawOutPath(VectorD2 tilePos, RawHeightRaster hmRaster) {
-			string hmRawOutPathFmt = outPathBase + "_HM_{0}x{1}xU{2}_{3:D2}-{4:D2}.raw";
-			string path = string.Format(hmRawOutPathFmt, hmRaster.width, hmRaster.height, hmRaster.bitsPerChannel, (uint)tilePos.y, (uint)tilePos.x);
+			string outDir = Path.GetDirectoryName(outPathBase);
+			string outNameBase = Path.GetFileName(outPathBase);
+			bool isFloat = (hmRaster.getChannelType() == typeof(float));
+
+			string path = string.Format(	hmRawOutPathFmt,
+																		outDir, outNameBase,
+																		(uint)tilePos.y, 
+																		(uint)tilePos.x);
 			return path;
 		}
 
 		string genRGBTiffOutPath(VectorD2 tilePos, ColorRaster rgbRaster) {
-			string rgbTiffOutPathFmt = outPathBase + "_RGB_{0:D2}-{1:D2}.tif";
-			string path = string.Format(rgbTiffOutPathFmt, (uint)tilePos.y, (uint)tilePos.x);
+			string outDir = Path.GetDirectoryName(outPathBase);
+			string outNameBase = Path.GetFileName(outPathBase);
+			string path = string.Format(hmRGBOutPathFmt,
+																		outDir, outNameBase,
+																		(uint)tilePos.y,
+																		(uint)tilePos.x);
 			return path;
 		}
 
@@ -568,4 +576,125 @@ namespace GeoTiff2Unity {
 		public double maxSampleValue = 0;
 		public int noSampleValue = 0;
 	}
+
+	public static class IOUtil {
+		public static byte[] StructToByteArray<T>(T source) where T : struct {
+			T[] sourceArray = new T[] { source };
+			GCHandle handle = GCHandle.Alloc(sourceArray, GCHandleType.Pinned);
+			try {
+				IntPtr pointer = handle.AddrOfPinnedObject();
+				byte[] destination = new byte[Marshal.SizeOf(typeof(T))];
+				Marshal.Copy(pointer, destination, 0, destination.Length);
+				return destination;
+			} finally {
+				if (handle.IsAllocated)
+					handle.Free();
+			}
+		}
+
+		public static T ByteArrayToStruct<T>(byte[] source) where T : struct {
+			T[] destination = new T[1];
+			GCHandle handle = GCHandle.Alloc(destination, GCHandleType.Pinned);
+			try {
+				IntPtr pointer = handle.AddrOfPinnedObject();
+				Marshal.Copy(source, 0, pointer, source.Length);
+				return destination[0];
+			} finally {
+				if (handle.IsAllocated)
+					handle.Free();
+			}
+		}
+	}
+
+	public struct HeightTileHeader {
+		public static readonly uint kMagic =	((uint)Char.GetNumericValue('r') << 24) + 
+																					((uint)Char.GetNumericValue('9') << 16) + 
+																					((uint)Char.GetNumericValue('n') << 8) + 
+																					(uint)Char.GetNumericValue('h');
+		public uint magic;
+		public uint tileSizePix;
+		public uint bytesPerSample;
+		public uint isFloat;
+		public float pixToMeters;
+		public float minTotalTerrainHeight;
+		public float maxTotalTerrainHeight;
+
+		public void Init<T>(uint wh, float pixSize, float minV, float maxV) where T : struct {
+			magic = kMagic;
+			tileSizePix = wh;
+			bytesPerSample = (uint)Marshal.SizeOf(typeof(T));
+			isFloat = ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double))) ? 1u : 0u;
+			pixToMeters = pixSize;
+			minTotalTerrainHeight = minV;
+			maxTotalTerrainHeight = maxV;
+		}
+
+		public void Write(FileStream outFile) {
+			var thisBytes = IOUtil.StructToByteArray(this);
+			outFile.Write(thisBytes, 0, thisBytes.Length);
+		}
+
+		public void Validate() {
+			if (magic != kMagic) {
+				throw new Exception(string.Format("incorrect magic number {0} expected {1}", magic, kMagic));
+			}
+
+			if (((tileSizePix - 1) & (tileSizePix - 2)) != 0) {
+				throw new Exception(string.Format("Height map size {0} is invalid. Must be 2^N + 1.", tileSizePix));
+			}
+
+			if (isFloat > 1) {
+				throw new Exception(string.Format("Invalid value for isFloat {0}. Must be 0 or 1.", isFloat));
+			}
+
+			if ((isFloat != 0) && (bytesPerSample != 4u)) {
+				throw new Exception(string.Format("Invalid bytes per sample {0} for sample type float. Must be 4.", bytesPerSample));
+			}
+
+			if ((isFloat == 0) && (bytesPerSample != 1u) && (bytesPerSample != 2u)) {
+				throw new Exception(string.Format("Invalid bytes per sample {0} for sample type uint. Must be 1 or 2.", bytesPerSample));
+			}
+
+			if (pixToMeters <= 0.0f) {
+				throw new Exception(string.Format("Invalid pixel to meters scale {0}. Must be > 0", pixToMeters));
+			}
+
+			if (minTotalTerrainHeight < 0.0f || maxTotalTerrainHeight < minTotalTerrainHeight) {
+				throw new Exception(string.Format("Invalid min/max decoded values {0}/{1}. Must be >= 0 and max must be >= min.", minTotalTerrainHeight, maxTotalTerrainHeight));
+			}
+		}
+
+		public void Validate(HeightTileHeader expected) {
+			Validate();
+
+			if (bytesPerSample != expected.bytesPerSample) {
+				throw new Exception(string.Format("bytesPerSample {0} does not match expected {1}", bytesPerSample, expected.bytesPerSample));
+			}
+
+			if (isFloat != expected.isFloat) {
+				throw new Exception(string.Format("isFloat {0} does not match expected {1}", isFloat, expected.isFloat));
+			}
+
+			if (pixToMeters != expected.pixToMeters) {
+				throw new Exception(string.Format("pixSizeM {0} does not match expected {1}", isFloat, expected.isFloat));
+			}
+
+			if (minTotalTerrainHeight != expected.minTotalTerrainHeight || maxTotalTerrainHeight != expected.maxTotalTerrainHeight) {
+				throw new Exception(string.Format("min/max total terrain heights {0}/{1} do not match expected {2}/{3}",
+					minTotalTerrainHeight, maxTotalTerrainHeight, expected.minTotalTerrainHeight, expected.maxTotalTerrainHeight));
+			}
+		}
+
+		public static HeightTileHeader Read(FileStream inFile) {
+			var thisBytes = new byte[Marshal.SizeOf(typeof(HeightTileHeader))];
+			inFile.Read(thisBytes, 0, thisBytes.Length);
+			HeightTileHeader hdr = IOUtil.ByteArrayToStruct<HeightTileHeader>(thisBytes);
+
+			hdr.Validate();
+
+			return hdr;
+		}
+	}
+
+
 }

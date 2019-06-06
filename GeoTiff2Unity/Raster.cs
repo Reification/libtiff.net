@@ -13,21 +13,49 @@ namespace GeoTiff2Unity {
 	}
 
 	public class Raster<T> where T : struct {
-		public static readonly uint pixSizeBytes = getPixTypeSizeBytes();
-		public static readonly uint pixChannelCount = getPixTypeChannelCount();
-		public static readonly Type pixType = typeof(T);
-		public static readonly Type pixChannelType = getPixChannelType();
+		public static readonly uint bytesPerPixel = getPixTypeSizeBytes();
+		public static readonly uint channelCount = getPixTypeChannelCount();
+		public static readonly Type pixelType = typeof(T);
+		public static readonly Type channelType = getPixChannelType();
 
-		public uint bytesPerPixel { get { return pixSizeBytes; } }
-		public uint bytesPerChannel { get { return (pixSizeBytes / pixChannelCount); } }
+		public static uint bytesPerChannel { get { return bytesPerPixel / channelCount; } }
+		public static uint bitsPerPixel { get { return (bytesPerPixel * 8); } }
+		public static uint bitsPerChannel { get { return (bytesPerPixel * 8) / channelCount; } }
 
-		public uint bitsPerPixel {  get { return bytesPerPixel * 8; } }
-		public uint bitsPerChannel {  get { return bytesPerChannel * 8; } }
+		public static bool channelIsFloat { get { return (channelType == typeof(float) || channelType == typeof(double)); } }
+		public static bool channelIsUint { get { return !channelIsFloat; } }
 
-		public uint channelCount {  get { return pixChannelCount; } }
+		public static uint maxChannelValue {
+			get {
+				return channelIsFloat ? 1 : (uint)((1ul << (int)bitsPerChannel) - 1);
+			}
+		}
 
-		public Type pixelType { get { return pixType; } }
-		public Type channelType {  get { return pixChannelType; } }
+		public static string pixelTypeName {
+			get {
+				return pixelType.IsPrimitive ? channelTypeName : pixelType.Name;
+			}
+		}
+
+		public static string channelTypeName {
+			get {
+				string baseType = channelIsFloat ? "float" : "uint";
+				return string.Format("{0}{1}", baseType, bitsPerChannel);
+			}
+		}
+
+		public bool getChannelIsUint() { return channelIsUint; }
+		public bool getChannelIsFloat() { return channelIsFloat; }
+		public uint getMaxChannelValue() { return maxChannelValue; }
+		public uint getBytesPerPixel() { return bytesPerPixel; }
+		public uint getBytesPerChanne() { return bytesPerChannel; }
+		public uint getBitsPerPixel() { return bitsPerPixel; }
+		public uint getBitsPerChannel() { return bitsPerChannel; }
+		public uint getChannelCount() { return channelCount; }
+		public Type getPixelType() { return pixelType; }
+		public Type getChannelType() { return channelType; }
+		public string getPixelTypeName() { return pixelTypeName; }
+		public string getChannelTypeName() { return channelTypeName; }
 
 		public Raster() {
 			width = height = pitch = 0;
@@ -41,7 +69,7 @@ namespace GeoTiff2Unity {
 		public void Init(uint _width, uint _height) {
 			width = _width;
 			height = _height;
-			pitch = _width * pixSizeBytes;
+			pitch = _width * bytesPerPixel;
 			pixels = new T[width * height];
 		}
 
@@ -168,7 +196,7 @@ namespace GeoTiff2Unity {
 		private void rotate90(bool ccw) {
 			uint newW = height;
 			uint newH = width;
-			uint newP = newW * pixSizeBytes;
+			uint newP = newW * bytesPerPixel;
 			T[] newPixels = new T[sizePix];
 
 			if (ccw) {
@@ -205,18 +233,18 @@ namespace GeoTiff2Unity {
 			if (t.IsByRef) {
 				throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of public primitives.", t));
 			}
-			if ( t.IsPrimitive ) {
+			if (t.IsPrimitive) {
 				return t;
 			}
 
-			var fields = t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic );
+			var fields = t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
-			if ( !fields[0].FieldType.IsPrimitive || !fields[0].IsPublic ) {
+			if (!fields[0].FieldType.IsPrimitive || !fields[0].IsPublic) {
 				throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of identical public primitives.", t));
 			}
 
 			for (int i = 1; i < fields.Length; i++) {
-				if (fields[i].FieldType != fields[0].FieldType || !fields[i].IsPublic ) {
+				if (fields[i].FieldType != fields[0].FieldType || !fields[i].IsPublic) {
 					throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of identical public primitives.", t));
 				}
 			}
@@ -254,7 +282,7 @@ namespace GeoTiff2Unity {
 		public byte g;
 		public byte b;
 
-		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f/byte.MaxValue) {
+		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
 			return new ColorF32 {
 				r = (r + translation) * scale,
 				g = (g + translation) * scale,
@@ -293,7 +321,7 @@ namespace GeoTiff2Unity {
 	}
 
 	public static class RasterUtil {
-		public static byte[] StructArrayToByteArray<T> (T[] source) where T : struct {
+		public static byte[] StructArrayToByteArray<T>(T[] source) where T : struct {
 			GCHandle handle = GCHandle.Alloc(source, GCHandleType.Pinned);
 			try {
 				IntPtr pointer = handle.AddrOfPinnedObject();
@@ -347,6 +375,14 @@ namespace GeoTiff2Unity {
 			dst.Init(src.width, src.height);
 			for (uint i = 0; i < dst.pixels.Length; i++) {
 				dst.pixels[i] = (byte)((src.pixels[i] + translation) * scale + round);
+			}
+			return dst;
+		}
+
+		public static Raster<float> Convert(this Raster<float> src, Raster<float> dst, float translation = 0.0f, float scale = 1.0f) {
+			dst.Init(src.width, src.height);
+			for (uint i = 0; i < dst.pixels.Length; i++) {
+				dst.pixels[i] = (src.pixels[i] + translation) * scale;
 			}
 			return dst;
 		}
@@ -502,7 +538,7 @@ namespace GeoTiff2Unity {
 				dst = dst.scaledDown2to1();
 			}
 
-			if ( dst.width != w || dst.height != h ) {
+			if (dst.width != w || dst.height != h) {
 				dst = dst.Convert(new Raster<ColorF32>()).Scaled(w, h).Convert(dst);
 			}
 
@@ -513,7 +549,7 @@ namespace GeoTiff2Unity {
 			var dst = new Raster<ColorU8>(src.width / 2, src.height / 2);
 			var accumRow = new ColorU16[dst.width];
 
-			for(uint i = 0; i < accumRow.Length; i++) {
+			for (uint i = 0; i < accumRow.Length; i++) {
 				accumRow[i] = ColorU16.zero;
 			}
 
