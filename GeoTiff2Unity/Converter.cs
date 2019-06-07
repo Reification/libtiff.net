@@ -503,13 +503,17 @@ namespace GeoTiff2Unity {
 			return val;
 		}
 
-		static readonly string hmRawOutPathFmt = "{0}/.HeightMaps/{1}_HM_{2:D2}-{3:D2}_{4:D3}-{5:D3}.r9nh";
+		static readonly string hmRawOutPathFmt = "{0}/{1}_HM_{2:D2}-{3:D2}_{4:D3}-{5:D3}.r9nh";
 		static readonly string hmRGBOutPathFmt = "{0}/{1}_RGB_{2:D2}-{3:D2}_{4:D3}-{5:D3}.tif";
 
 		string genHMRawOutPath(VectorD2 tileRegion, VectorD2 tilePos, HeightRaster hmRaster) {
-			string outDir = Path.GetDirectoryName(outPathBase);
+			string outDir = Path.GetDirectoryName(outPathBase) + "/.HeightMaps";
 			string outNameBase = Path.GetFileName(outPathBase);
 			bool isFloat = (hmRaster.getChannelType() == typeof(float));
+
+			if (!Directory.Exists(outDir) ) {
+				Directory.CreateDirectory(outDir);
+			}
 
 			string path = string.Format(	hmRawOutPathFmt,
 																		outDir, outNameBase,
