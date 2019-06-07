@@ -167,12 +167,9 @@ namespace GeoTiff2Unity {
 
 			{
 				var hmRasterIn = new GTHeightRaster();
-				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
-				Util.Log("Converting {0} geotiff height map to {1} Unity ready {2} sized rare tiles.",
-					GTHeightRaster.pixelTypeName,
-					HeightRaster.pixelTypeName,
-					hmOutTileSizePix);
+				Util.Log("");
+				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
 				hmRasterIn = processHeightMapData(hmRasterIn);
 
@@ -193,37 +190,51 @@ namespace GeoTiff2Unity {
 				break;
 			}
 
+			Util.Log("");
 			generateTiles(hmRasterOut, null, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
 		void processRGBImage() {
 			var rgbRaster = new ColorRaster();
 
+			Util.Log("");
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
-			Util.Log("Converting RGB geotiff image to Unity ready {0} sized tiff tiles.", (hmOutTileSizePix * hmToRGBPixScale).Floor());
-
+			Util.Log("");
 			generateTiles(null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
 		void generateTiles(HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
+			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Floor();
+
 			if (hmRgnTileSizePix.Min() < hmOutMinTexSize) {
+				Util.Log("Skipping region {0}, size {1}, height tile size {2} below min height tile size {3}",
+					regionId, hmRgnSizePix, hmRgnTileSizePix, hmOutMinTexSize);
 				return;
 			}
 
-			VectorD2 hmTileCoords = 0;
-			VectorD2 hmTileOrigin = hmRgnOrigin;
-			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSizePix;
-
-			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Floor();
 			VectorD2 bcRgnTileSizePix = (rgbRgnTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
 			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSizePix != bcRgnTileSizePix));
+
+			if (hmRasterOut != null) {
+				Util.Log("Writing {0} sized {1} height tiles for region {2}, sized {3}", 
+					hmRgnTileSizePix, HeightRaster.pixelTypeName, regionId, hmRgnSizePix);
+			}
+
+			if (rgbRasterOut != null) {
+				Util.Log("Writing {0} sized RGB tiles matching {1} sized height tiles for region {2}, sized {3}", 
+					rgbRgnTileSizePix, hmRgnTileSizePix, regionId, hmRgnSizePix);
+			}
 
 			if (rgbTileScaleNeeded) {
 				Util.Log("  RGB tiles will be scaled to {1}, multiple of {0} for compatibility with block compression algorithms.",
 					bcRgnTileSizePix,
 					kBCBlockSize);
 			}
+
+			VectorD2 hmTileCoords = 0;
+			VectorD2 hmTileOrigin = hmRgnOrigin;
+			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSizePix;
 
 			for (; (hmTileOrigin.y + hmRgnTileSizePix.y) < hmRgnEnd.y; hmTileOrigin.y += hmRgnTileSizePix.y) {
 
@@ -239,8 +250,10 @@ namespace GeoTiff2Unity {
 						}
 
 						writeRawTileOut(hmTileOutPath, hmTileRaster);
-						Util.Log("  wrote tile {0}", hmTileOutPath);
-					} else if (rgbRasterOut != null) {
+						Util.Log("  wrote height tile {0}", Path.GetFileName(hmTileOutPath));
+					}
+
+					if (rgbRasterOut != null) {
 						var rgbTileOrigin = (hmTileOrigin * hmToRGBPixScale).Floor();
 						var rgbTileRaster = rgbRasterOut.Clone(rgbTileOrigin, rgbRgnTileSizePix); ;
 
@@ -251,7 +264,7 @@ namespace GeoTiff2Unity {
 						string rgbTileOutPath = genRGBTiffOutPath(regionId, hmTileCoords, rgbTileRaster);
 
 						writeRGBTiffOut(rgbTileOutPath, rgbTileRaster, rgbHeader.orientation);
-						Util.Log("  wrote tile {0}", rgbTileOutPath);
+						Util.Log("  wrote rgb tile {0}", Path.GetFileName(rgbTileOutPath));
 					}
 
 					hmTileCoords.x++;
@@ -261,10 +274,14 @@ namespace GeoTiff2Unity {
 				hmTileCoords.y++;
 			}
 
-			if (hmTileOrigin != hmRgnEnd) {
+			// hmTileOrigin has been iterated to be at bottom right corner of covered part of region.
+
+			if (hmTileOrigin.Truncate() != hmRgnEnd.Truncate()) {
 				VectorD2 cornerSize = hmRgnEnd - hmTileOrigin;
-				VectorD2 rightEdgeSize = new VectorD2 { x = cornerSize.x, y = hmRgnSizePix.y };
-				VectorD2 bottomEdgeSize = new VectorD2 { x = hmRgnSizePix.x, y = cornerSize.y };
+				VectorD2 rightEdgeSize = (cornerSize * VectorD2.v10) + ((hmRgnSizePix - cornerSize) * VectorD2.v01);
+				VectorD2 bottomEdgeSize = ((hmRgnSizePix - cornerSize) * VectorD2.v10) + (cornerSize * VectorD2.v01);
+
+				Util.Log("  Region {0} finishged with pending right/bottom edges {1}", regionId, cornerSize);
 
 				VectorD2 newRegionId;
 				VectorD2 newRgnTileSizePix;
@@ -275,26 +292,37 @@ namespace GeoTiff2Unity {
 				// TODO: try glomming corner onto one of the edges and computing which way works out best
 				//
 
-				newRegionId = regionId + VectorD2.v10;
-				newRgnOrigin = hmRgnOrigin + hmTileOrigin.x * VectorD2.v10;
-				newRgnSize = rightEdgeSize;
-				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(rightEdgeSize.Min());
+				// recurse into right edge
+				{
+					newRegionId = regionId + VectorD2.v10;
+					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v10);
+					newRgnSize = rightEdgeSize;
+					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
 
-				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+				}
 
-				newRegionId = regionId + VectorD2.v01;
-				newRgnOrigin = hmRgnOrigin + hmTileOrigin.y * VectorD2.v01;
-				newRgnSize = bottomEdgeSize;
-				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(bottomEdgeSize.Min());
+				// recurse into bottom edge
+				{
+					newRegionId = regionId + VectorD2.v01;
+					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v01);
+					newRgnSize = bottomEdgeSize;
+					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
 
-				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+				}
 
-				newRegionId = regionId + VectorD2.v11;
-				newRgnOrigin = hmRgnOrigin + hmTileOrigin;
-				newRgnSize = cornerSize;
-				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(cornerSize.Min());
+				// recurse into bottom right corner
+				{
+					newRegionId = regionId + VectorD2.v11;
+					newRgnOrigin = hmRgnOrigin + hmTileOrigin;
+					newRgnSize = cornerSize;
+					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
 
-				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+				}
+			} else {
+				Util.Log("  Region {1} finished with an exact fit.", regionId);
 			}
 		}
 
