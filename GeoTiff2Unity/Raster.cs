@@ -67,10 +67,14 @@ namespace GeoTiff2Unity {
 		}
 
 		public void Init(uint _width, uint _height) {
-			width = _width;
-			height = _height;
-			pitch = _width * bytesPerPixel;
-			pixels = new T[width * height];
+			if (_width != width || _height != height) {
+				width = _width;
+				height = _height;
+				pitch = _width * bytesPerPixel;
+			}
+			if (!(pixels?.Length == width * height)) {
+				pixels = new T[width * height];
+			}
 		}
 
 		public Raster<T> Clone() {
@@ -81,13 +85,9 @@ namespace GeoTiff2Unity {
 
 		public Raster<T> Clone(uint x, uint y, uint w, uint h) {
 			Raster<T> clone = new Raster<T>(w, h);
-			uint dstRow = 0;
-			uint srcRow = y * width + x;
-			for (uint r = 0; r < h; r++) {
-				Array.Copy(pixels, (int)srcRow, clone.pixels, (int)dstRow, (int)clone.width);
-				srcRow += width;
-				dstRow += clone.width;
-			}
+			var pix = clone.pixels;
+			GetRect(ref pix, x, y, w, h);
+			if (pix != clone.pixels) { throw new Exception("internal error: allocation should only occur for null or undersized buffers!"); }
 			return clone;
 		}
 
@@ -105,29 +105,98 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		public void GetRows(uint y, T[] rows, uint rowCount) {
-			Array.Copy(pixels, (int)(y * width), rows, 0, (int)(width * rowCount));
+		public void Clear(T clearVal, uint x, uint y, uint w, uint h) {
+			uint dstRow = (y * width) + x;
+			for (uint r = 0; r < h; r++) {
+				for(uint c = 0; c < w; c++) {
+					pixels[dstRow + c] = clearVal;
+				}
+				dstRow += width;
+			}
+		}
+
+		public void GetRows(uint y, ref T[] rows, uint rowCount) {
+			int pixCount = (int)(width * rowCount);
+			if (!(rows?.Length >= pixCount)) {
+				rows = new T[pixCount];
+			}
+			Array.Copy(pixels, (int)(y * width), rows, 0, pixCount);
 		}
 
 		public void SetRows(uint y, T[] rows, uint rowCount) {
 			Array.Copy(rows, 0, pixels, (int)(y * width), (int)(width * rowCount));
 		}
 
-		public void GetRow(uint y, T[] row) {
-			GetRows(y, row, 1);
+		public void GetRow(uint y, ref T[] row) {
+			GetRows(y, ref row, 1);
 		}
 
 		public void SetRow(uint y, T[] row) {
 			SetRows(y, row, 1);
 		}
 
-		public void GetRawRows(uint y, byte[] rows, uint rowCount) {
+		public void GetRect(ref T[] rect, uint x, uint y, uint w, uint h) {
+			uint dstRow = 0;
+			uint srcRow = y * width + x;
+			if (!(rect?.Length >= (w * h))) {
+				rect = new T[w * h];
+			}
+			for (uint r = 0; r < h; r++) {
+				Array.Copy(pixels, (int)srcRow, rect, (int)dstRow, (int)w);
+				srcRow += width;
+				dstRow += w;
+			}
+		}
+
+		public void GetRect(Raster<T> rect, uint x, uint y) {
+			var pix = rect.pixels;
+			GetRect(ref pix, x, y, rect.width, rect.height);
+			if (pix != rect.pixels) { throw new Exception("internal error: allocation should only occur for null or undersized buffers!"); }
+		}
+
+		public void SetRect(T[] rect, uint x, uint y, uint w, uint h) {
+			uint dstRow = 0;
+			uint srcRow = y * width + x;
+			for (uint r = 0; r < h; r++) {
+				Array.Copy(pixels, (int)srcRow, rect, (int)dstRow, (int)w);
+				srcRow += width;
+				dstRow += w;
+			}
+		}
+
+		public void SetRect(Raster<T> rect, uint x, uint y) {
+			SetRect(rect.pixels, x, y, rect.width, rect.height);
+		}
+
+		public byte[] CloneRaw() {
+			byte[] rasterBytes = new byte[sizeBytes];
+
 			if (typeof(T).IsPrimitive) {
-				Buffer.BlockCopy(pixels, (int)(y * pitch), rows, 0, (int)(pitch * rowCount));
+				Buffer.BlockCopy(pixels, 0, rasterBytes, 0, rasterBytes.Length);
 			} else {
-				var trows = new T[width * rowCount];
-				GetRows(y, trows, rowCount);
-				Array.Copy(RasterUtil.StructArrayToByteArray(trows), 0, rows, 0, (int)(pitch * rowCount));
+				RasterUtil.StructArrayToByteArray<T>(pixels, ref rasterBytes);
+			}
+
+			return rasterBytes;
+		}
+
+		public byte[] CloneRaw(uint x, uint y, uint w, uint h) {
+			byte[] rectBytes = null;
+			GetRawRect(ref rectBytes, x, y, w, h);
+			return rectBytes;
+		}
+
+		public void GetRawRows(uint y, ref byte[] rows, uint rowCount) {
+			int byteCount = (int)(pitch * rowCount);
+			if (typeof(T).IsPrimitive) {
+				if (!(rows?.Length >= byteCount)) {
+					rows = new byte[byteCount];
+				}
+				Buffer.BlockCopy(pixels, (int)(y * pitch), rows, 0, byteCount);
+			} else {
+				T[] trows = null;
+				GetRows(y, ref trows, rowCount);
+				rows = RasterUtil.StructArrayToByteArray(trows);
 			}
 		}
 
@@ -139,13 +208,44 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		public byte[] ToByteArray() {
+		public void GetRawRect(ref byte[] rect, uint x, uint y, uint w, uint h) {
+			int byteCount = (int)(w * h * bytesPerPixel);
+			if (!(rect?.Length >= byteCount)) {
+				rect = new byte[byteCount];
+			}
+
 			if (typeof(T).IsPrimitive) {
-				byte[] rasterBytes = new byte[sizeBytes];
-				Buffer.BlockCopy(pixels, 0, rasterBytes, 0, rasterBytes.Length);
-				return rasterBytes;
+				uint srcR = (y * pitch) + (x * bytesPerPixel);
+				uint dstR = 0;
+				uint dstPitch = w * bytesPerPixel;
+
+				for (uint r = 0; r < h; r++) {
+					Buffer.BlockCopy(pixels, (int)srcR, rect, (int)dstR, (int)dstPitch);
+					srcR += pitch;
+					dstR += dstPitch;
+				}
 			} else {
-				return RasterUtil.StructArrayToByteArray<T>(pixels);
+				T[] trect = null;
+				GetRect(ref trect, x, y, w, h);
+				RasterUtil.StructArrayToByteArray(trect, ref rect);
+			}
+		}
+
+		public void SetRawRect(byte[] rect, uint x, uint y, uint w, uint h) {
+			int byteCount = (int)(w * h * bytesPerPixel);
+
+			if (typeof(T).IsPrimitive) {
+				uint dstR = (y * pitch) + (x * bytesPerPixel);
+				uint srcR = 0;
+				uint srcPitch = w * bytesPerPixel;
+
+				for (uint r = 0; r < h; r++) {
+					Buffer.BlockCopy(rect, (int)srcR, pixels, (int)dstR, (int)srcPitch);
+					srcR += srcPitch;
+					dstR += pitch;
+				}
+			} else {
+				SetRect(RasterUtil.ByteArrayToStructArray<T>(rect), x, y, w, h);
 			}
 		}
 
@@ -321,12 +421,15 @@ namespace GeoTiff2Unity {
 	}
 
 	public static class RasterUtil {
-		public static byte[] StructArrayToByteArray<T>(T[] source) where T : struct {
+		public static byte[] StructArrayToByteArray<T>(T[] source, ref byte[] destination) where T : struct {
 			GCHandle handle = GCHandle.Alloc(source, GCHandleType.Pinned);
 			try {
+				int byteCount = source.Length * Marshal.SizeOf(typeof(T));
 				IntPtr pointer = handle.AddrOfPinnedObject();
-				byte[] destination = new byte[source.Length * Marshal.SizeOf(typeof(T))];
-				Marshal.Copy(pointer, destination, 0, destination.Length);
+				if ( !(destination?.Length >= byteCount) ) {
+					destination = new byte[byteCount];
+				}
+				Marshal.Copy(pointer, destination, 0, source.Length);
 				return destination;
 			} finally {
 				if (handle.IsAllocated)
@@ -334,8 +437,11 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		public static T[] ByteArrayToStructArray<T>(byte[] source) where T : struct {
-			T[] destination = new T[source.Length / Marshal.SizeOf(typeof(T))];
+		public static T[] ByteArrayToStructArray<T>(byte[] source, ref T[] destination) where T : struct {
+			int instanceCount = source.Length / Marshal.SizeOf(typeof(T));
+			if (!(destination?.Length >= instanceCount)) {
+				destination = new T[instanceCount];
+			}
 			GCHandle handle = GCHandle.Alloc(destination, GCHandleType.Pinned);
 			try {
 				IntPtr pointer = handle.AddrOfPinnedObject();
@@ -345,6 +451,16 @@ namespace GeoTiff2Unity {
 				if (handle.IsAllocated)
 					handle.Free();
 			}
+		}
+
+		public static byte[] StructArrayToByteArray<T>(T[] source) where T : struct {
+			byte[] dst = null;
+			return StructArrayToByteArray(source, ref dst);
+		}
+
+		public static T[] ByteArrayToStructArray<T>(byte[] source) where T : struct {
+			T[] destination = null;
+			return ByteArrayToStructArray<T>(source, ref destination);
 		}
 
 		public static Raster<float> Convert(this Raster<byte> src, Raster<float> dst, float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
@@ -516,6 +632,20 @@ namespace GeoTiff2Unity {
 			return scaledDown(src, w, h);
 		}
 
+		public static Raster<byte> Scaled(this Raster<byte> src, uint w, uint h) {
+			Raster<byte> dst = src;
+
+			while ((w << 1) >= dst.width && (h << 1) >= dst.height) {
+				dst = dst.scaledDown2to1();
+			}
+
+			if (dst.width != w || dst.height != h) {
+				dst = dst.Convert(new Raster<float>()).Scaled(w, h).Convert(dst);
+			}
+
+			return dst;
+		}
+
 		public static Raster<ushort> Scaled(this Raster<ushort> src, uint w, uint h) {
 			Raster<ushort> dst = src;
 
@@ -529,7 +659,6 @@ namespace GeoTiff2Unity {
 
 			return dst;
 		}
-
 
 		public static Raster<ColorU8> Scaled(this Raster<ColorU8> src, uint w, uint h) {
 			Raster<ColorU8> dst = src;
@@ -564,6 +693,31 @@ namespace GeoTiff2Unity {
 				for (uint dstX = 0; dstX < dst.width; dstX++) {
 					dst.pixels[dstR + dstX] = accumRow[dstX].divBy4U8();
 					accumRow[dstX] = ColorU16.zero;
+				}
+			}
+
+			return dst;
+		}
+
+		static Raster<byte> scaledDown2to1(this Raster<byte> src) {
+			var dst = new Raster<byte>(src.width / 2, src.height / 2);
+			var accumRow = new ushort[dst.width];
+
+			for (uint i = 0; i < accumRow.Length; i++) {
+				accumRow[i] = 0;
+			}
+
+			for (uint dstR = 0, srcR = 0, endDstR = dst.width * dst.height; dstR < endDstR; dstR += dst.width) {
+				for (int i = 0; i < 2; i++) {
+					for (uint dstX = 0, srcX = 0; dstX < dst.width; dstX++, srcX += 2) {
+						accumRow[dstX] += src.pixels[srcR + srcX];
+						accumRow[dstX] += src.pixels[srcR + srcX + 1];
+					}
+					srcR += src.width;
+				}
+				for (uint dstX = 0; dstX < dst.width; dstX++) {
+					dst.pixels[dstR + dstX] = (byte)(accumRow[dstX] >> 2);
+					accumRow[dstX] = 0;
 				}
 			}
 
