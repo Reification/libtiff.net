@@ -96,6 +96,11 @@ namespace GeoTiff2Unity {
 		public static VectorD2 operator /(VectorD2 v, VectorD2 v2) {
 			return new VectorD2 { x = v.x / v2.x, y = v.y / v2.y };
 		}
+
+		public static readonly VectorD2 v00 = 0;
+		public static readonly VectorD2 v10 = new VectorD2 { x = 1, y = 0 };
+		public static readonly VectorD2 v01 = new VectorD2 { x = 0, y = 1 };
+		public static readonly VectorD2 v11 = 1;
 	}
 
 	public struct VectorD3 {
@@ -202,5 +207,14 @@ namespace GeoTiff2Unity {
 		public static VectorD3 operator /(VectorD3 v, VectorD2 v2) {
 			return new VectorD3 { x = v.x / v2.x, y = v.y / v2.y, z = v.z };
 		}
+
+		public static readonly VectorD3 v000 = 0;
+		public static readonly VectorD3 v100 = new VectorD3 { x = 1, y = 0, z = 0 };
+		public static readonly VectorD3 v010 = new VectorD3 { x = 0, y = 1, z = 0 };
+		public static readonly VectorD3 v001 = new VectorD3 { x = 0, y = 0, z = 1 };
+		public static readonly VectorD3 v110 = new VectorD3 { x = 1, y = 1, z = 0 };
+		public static readonly VectorD3 v101 = new VectorD3 { x = 1, y = 0, z = 1 };
+		public static readonly VectorD3 v011 = new VectorD3 { x = 0, y = 1, z = 1 };
+		public static readonly VectorD3 v111 = 1;
 	}
 }

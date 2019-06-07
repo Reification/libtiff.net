@@ -615,12 +615,16 @@ namespace GeoTiff2Unity {
 			float srcY = 0.0f;
 			float srcX;
 
-			for (uint dstY = 0; dstY < h; dstY++, srcY += srcYStep) {
+			for (uint dstY = 0; dstY < h;) {
 				srcX = 0.0f;
-				for (uint dstX = 0; dstX < w; dstX++, srcX += srcXStep) {
+				for (uint dstX = 0; dstX < w;) {
 					var p = src.GetSubPixel(srcX, srcY);
 					dst.SetPixel(dstX, dstY, p);
+					dstX++;
+					srcX = dstX * srcXStep;
 				}
+				dstY++;
+				srcY = dstY * srcXStep;
 			}
 
 			return dst;
@@ -646,12 +650,16 @@ namespace GeoTiff2Unity {
 			float srcY = (srcYStep - 1) * 0.5f;
 			float srcX;
 
-			for (uint dstY = 0; dstY < h; dstY++, srcY += srcYStep) {
+			for (uint dstY = 0; dstY < h;) {
 				srcX = (srcXStep - 1) * 0.5f;
-				for (uint dstX = 0; dstX < w; dstX++, srcX += srcXStep) {
+				for (uint dstX = 0; dstX < w;) {
 					var p = src.GetSubPixel(srcX, srcY);
 					dst.SetPixel(dstX, dstY, p);
+					dstX++;
+					srcX = dstX * srcXStep;
 				}
+				dstY++;
+				srcY = dstY * srcYStep;
 			}
 
 			return dst;
@@ -677,12 +685,16 @@ namespace GeoTiff2Unity {
 			float srcY = 0.0f;
 			float srcX;
 
-			for (uint dstY = 0; dstY < h; dstY++, srcY += srcYStep) {
+			for (uint dstY = 0; dstY < h; ) {
 				srcX = 0.0f;
-				for (uint dstX = 0; dstX < w; dstX++, srcX += srcXStep) {
+				for (uint dstX = 0; dstX < w; ) {
 					var p = src.GetSubPixel(srcX, srcY);
 					dst.SetPixel(dstX, dstY, p);
+					dstX++;
+					srcX = dstX * srcXStep;
 				}
+				dstY++;
+				srcY = dstY * srcXStep;
 			}
 
 			return dst;
@@ -708,12 +720,16 @@ namespace GeoTiff2Unity {
 			float srcY = (srcYStep - 1) * 0.5f;
 			float srcX;
 
-			for (uint dstY = 0; dstY < h; dstY++, srcY += srcYStep) {
+			for (uint dstY = 0; dstY < h; ) {
 				srcX = (srcXStep - 1) * 0.5f;
-				for (uint dstX = 0; dstX < w; dstX++, srcX += srcXStep) {
+				for (uint dstX = 0; dstX < w; ) {
 					var p = src.GetSubPixel(srcX, srcY);
 					dst.SetPixel(dstX, dstY, p);
+					dstX++;
+					srcX = dstX * srcXStep;
 				}
+				dstY++;
+				srcY = dstY * srcYStep;
 			}
 
 			return dst;

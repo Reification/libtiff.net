@@ -5,11 +5,14 @@ namespace GeoTiff2Unity {
 	class Program {
 		static private string appName = "GeoTiff2Raw";
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-maxheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<true|false>] <outputNameBase>",
+			appName + " <inputHeight.tif> <inputRGB.tif> [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<true|false>] <outputNameBase>",
 			"  <inputHeight.tif>: source 32 bit float height map image",
 			"  <inputRGB.tif>: source RGB texture matching height map",
 			"  -maxheighttex=<size_in_pix>: optional.",
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMaxHeightTexSize + ".",
+			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
+			"  -minheighttex=<size_in_pix>: optional.",
+			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMinHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
 			"  -maxrgbtex=<size_in_pix>: optional.",
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinRGBTexSize, Converter.kMaxRGBTexSize) + ". default is " + Converter.kMaxRGBTexSize + ".",
@@ -44,6 +47,17 @@ namespace GeoTiff2Unity {
 									((cnv.hmOutMaxTexSize - 1) & (cnv.hmOutMaxTexSize - 2)) != 0)
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
+						}
+						break;
+					case "minheighttex":
+						if (nameValPair.Length != 2) {
+							usage("option {0}: invalid format {1}", nameValPair[0], option);
+						}
+						if (!uint.TryParse(nameValPair[1], out cnv.hmOutMinTexSize) ||
+									cnv.hmOutMinTexSize < Converter.kMinHeightTexSize ||
+									cnv.hmOutMinTexSize > Converter.kMaxHeightTexSize ||
+									((cnv.hmOutMinTexSize - 1) & (cnv.hmOutMinTexSize - 2)) != 0) {
+							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
 					case "maxrgbtex":
@@ -105,6 +119,10 @@ namespace GeoTiff2Unity {
 						cnv.outPathBase == null ) 
 			{
 				usage(args.Length > 0 ? "all inputs and outputs must be specified." : null);
+			}
+
+			if (cnv.hmOutMinTexSize > cnv.hmOutMaxTexSize) {
+				usage("minheighttex {0} is > maxheighttex {1}", cnv.hmOutMinTexSize, cnv.hmOutMaxTexSize);
 			}
 
 			if (!File.Exists(cnv.hmTiffInPath)) {

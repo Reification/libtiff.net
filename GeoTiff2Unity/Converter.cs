@@ -1,7 +1,7 @@
 ﻿// normally only raw format height tiles are saved.
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
-//#define SAVE_TIFF_HEIGHT_TILES
+#define SAVE_TIFF_HEIGHT_TILES
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -28,7 +28,8 @@ namespace GeoTiff2Unity {
 		public const uint kMinRGBTexSize = 512;
 		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
 		public const bool kDefaultRGBScaleToEvenBCBlockSize = true;
-		public const uint kMinHeightTexSize = 65;
+
+		public const uint kMinHeightTexSize = 257; //33;
 		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
 
 		public string hmTiffInPath = null;
@@ -36,6 +37,7 @@ namespace GeoTiff2Unity {
 		public string outPathBase = null;
 
 		public uint hmOutMaxTexSize = kMaxHeightTexSize;
+		public uint hmOutMinTexSize = kMinHeightTexSize;
 		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
 		public bool rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
 
@@ -156,7 +158,7 @@ namespace GeoTiff2Unity {
 
 			while (rgbOutTileSizePix.Max() > rgbOutMaxTexSize) {
 				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 2);
-				rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
+				rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Floor();
 			}
 		}
 
@@ -199,17 +201,21 @@ namespace GeoTiff2Unity {
 
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
-			Util.Log("Converting RGB geotiff image to Unity ready {0} sized tiff tiles.", (hmOutTileSizePix * hmToRGBPixScale).Round());
+			Util.Log("Converting RGB geotiff image to Unity ready {0} sized tiff tiles.", (hmOutTileSizePix * hmToRGBPixScale).Floor());
 
 			generateTiles(null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
 		void generateTiles(HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
+			if (hmRgnTileSizePix.Min() < hmOutMinTexSize) {
+				return;
+			}
+
 			VectorD2 hmTileCoords = 0;
 			VectorD2 hmTileOrigin = hmRgnOrigin;
 			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSizePix;
 
-			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Round();
+			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Floor();
 			VectorD2 bcRgnTileSizePix = (rgbRgnTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
 			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSizePix != bcRgnTileSizePix));
 
@@ -235,7 +241,7 @@ namespace GeoTiff2Unity {
 						writeRawTileOut(hmTileOutPath, hmTileRaster);
 						Util.Log("  wrote tile {0}", hmTileOutPath);
 					} else if (rgbRasterOut != null) {
-						var rgbTileOrigin = (hmTileOrigin * hmToRGBPixScale).Round();
+						var rgbTileOrigin = (hmTileOrigin * hmToRGBPixScale).Floor();
 						var rgbTileRaster = rgbRasterOut.Clone(rgbTileOrigin, rgbRgnTileSizePix); ;
 
 						if (rgbTileScaleNeeded) {
@@ -259,7 +265,36 @@ namespace GeoTiff2Unity {
 				VectorD2 cornerSize = hmRgnEnd - hmTileOrigin;
 				VectorD2 rightEdgeSize = new VectorD2 { x = cornerSize.x, y = hmRgnSizePix.y };
 				VectorD2 bottomEdgeSize = new VectorD2 { x = hmRgnSizePix.x, y = cornerSize.y };
-				VectorD2 newTileSize = (VectorD2)calcHeightMapSizeLTE(rightEdgeSize.Min());
+
+				VectorD2 newRegionId;
+				VectorD2 newRgnTileSizePix;
+				VectorD2 newRgnOrigin;
+				VectorD2 newRgnSize;
+
+				//
+				// TODO: try glomming corner onto one of the edges and computing which way works out best
+				//
+
+				newRegionId = regionId + VectorD2.v10;
+				newRgnOrigin = hmRgnOrigin + hmTileOrigin.x * VectorD2.v10;
+				newRgnSize = rightEdgeSize;
+				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(rightEdgeSize.Min());
+
+				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+
+				newRegionId = regionId + VectorD2.v01;
+				newRgnOrigin = hmRgnOrigin + hmTileOrigin.y * VectorD2.v01;
+				newRgnSize = bottomEdgeSize;
+				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(bottomEdgeSize.Min());
+
+				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+
+				newRegionId = regionId + VectorD2.v11;
+				newRgnOrigin = hmRgnOrigin + hmTileOrigin;
+				newRgnSize = cornerSize;
+				newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(cornerSize.Min());
+
+				generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
 			}
 		}
 
@@ -477,9 +512,6 @@ namespace GeoTiff2Unity {
 		GeoTiffHeader rgbHeader = new GeoTiffHeader();
 
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
-
-		/// @TODO: sizes for additional horizontal and verticlal tiles
-		/// to cover as much of heightmap as can be done with sums of legally sized tiles.
 		VectorD2 hmOutTileSizePix = (VectorD2)0;
 		List<VectorD2> hmSubTileSizePixList = new List<VectorD2>();
 	}
