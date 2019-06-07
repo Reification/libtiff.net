@@ -191,7 +191,7 @@ namespace GeoTiff2Unity {
 			}
 
 			Util.Log("");
-			generateTiles(hmRasterOut, null, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+			generateTiles(0, hmRasterOut, null, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
 		void processRGBImage() {
@@ -201,10 +201,10 @@ namespace GeoTiff2Unity {
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
 			Util.Log("");
-			generateTiles(null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+			generateTiles(0, null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
-		void generateTiles(HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
+		void generateTiles(uint recursionDepth, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
 			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Floor();
 
 			if (hmRgnTileSizePix.Min() < hmOutMinTexSize) {
@@ -277,49 +277,43 @@ namespace GeoTiff2Unity {
 			// hmTileOrigin has been iterated to be at bottom right corner of covered part of region.
 
 			if (hmTileOrigin.Truncate() != hmRgnEnd.Truncate()) {
-				VectorD2 cornerSize = hmRgnEnd - hmTileOrigin;
-				VectorD2 rightEdgeSize = (cornerSize * VectorD2.v10) + ((hmRgnSizePix - cornerSize) * VectorD2.v01);
-				VectorD2 bottomEdgeSize = ((hmRgnSizePix - cornerSize) * VectorD2.v10) + (cornerSize * VectorD2.v01);
+				VectorD2 edgeSizes = hmRgnEnd - hmTileOrigin;
 
-				Util.Log("  Region {0} finishged with pending right/bottom edges {1}", regionId, cornerSize);
+				VectorD2 rightEdgeSize = (edgeSizes * VectorD2.v10) + ((hmRgnSizePix - edgeSizes) * VectorD2.v01);
+				VectorD2 bottomEdgeSize = ((hmRgnSizePix - edgeSizes) * VectorD2.v10) + (edgeSizes * VectorD2.v01);
+
+				// whichever edge is wider gets the corner.
+				if (edgeSizes.x > edgeSizes.y) {
+					rightEdgeSize.y += edgeSizes.y;
+				} else {
+					bottomEdgeSize.x += edgeSizes.x;
+				}
+
+				Util.Log("  Region {0} finishged with pending right/bottom edges {1}", regionId, edgeSizes);
 
 				VectorD2 newRegionId;
 				VectorD2 newRgnTileSizePix;
 				VectorD2 newRgnOrigin;
 				VectorD2 newRgnSize;
 
-				//
-				// TODO: try glomming corner onto one of the edges and computing which way works out best
-				//
-
 				// recurse into right edge
 				{
-					newRegionId = regionId + VectorD2.v10;
+					newRegionId = regionId + (Math.Pow(2, recursionDepth) * VectorD2.v10);
 					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v10);
 					newRgnSize = rightEdgeSize;
 					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
 
-					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+					generateTiles(recursionDepth + 1, hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
 				}
 
 				// recurse into bottom edge
 				{
-					newRegionId = regionId + VectorD2.v01;
+					newRegionId = regionId + (Math.Pow(2, recursionDepth) * VectorD2.v01);
 					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v01);
 					newRgnSize = bottomEdgeSize;
 					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
 
-					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
-				}
-
-				// recurse into bottom right corner
-				{
-					newRegionId = regionId + VectorD2.v11;
-					newRgnOrigin = hmRgnOrigin + hmTileOrigin;
-					newRgnSize = cornerSize;
-					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
-
-					generateTiles(hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
+					generateTiles(recursionDepth + 1, hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
 				}
 			} else {
 				Util.Log("  Region {1} finished with an exact fit.", regionId);
