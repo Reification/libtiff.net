@@ -8,8 +8,8 @@ namespace GeoTiff2Unity {
 		public double width { get { return x; } }
 		public double height { get { return y; } }
 
-		public VectorD2 Truncate() {
-			return new VectorD2 { x = Math.Truncate(x), y = Math.Truncate(y) };
+		public VectorD2 Abs() {
+			return new VectorD2 { x = Math.Abs(x), y = Math.Abs(y) };
 		}
 
 		public VectorD2 Ceiling() {
@@ -23,6 +23,11 @@ namespace GeoTiff2Unity {
 		public VectorD2 Round() {
 			return new VectorD2 { x = Math.Round(x), y = Math.Round(y) };
 		}
+
+		public VectorD2 Truncate() {
+			return new VectorD2 { x = Math.Truncate(x), y = Math.Truncate(y) };
+		}
+
 
 		public double Min() {
 			return Math.Min(x, y);
@@ -102,16 +107,8 @@ namespace GeoTiff2Unity {
 		public double height { get { return y; } }
 		public double depth { get { return z; } }
 
-		public double Min() {
-			return Math.Min(x, Math.Min(y, z));
-		}
-
-		public double Max() {
-			return Math.Max(x, Math.Max(y, z));
-		}
-
-		public VectorD3 Truncate() {
-			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
+		public VectorD3 Abs() {
+			return new VectorD3 { x = Math.Abs(x), y = Math.Abs(y), z = Math.Abs(z) };
 		}
 
 		public VectorD3 Ceiling() {
@@ -124,6 +121,18 @@ namespace GeoTiff2Unity {
 
 		public VectorD3 Round() {
 			return new VectorD3 { x = Math.Round(x), y = Math.Round(y), z = Math.Round(z) };
+		}
+
+		public VectorD3 Truncate() {
+			return new VectorD3 { x = Math.Truncate(x), y = Math.Truncate(y), z = Math.Truncate(z) };
+		}
+
+		public double Min() {
+			return Math.Min(x, Math.Min(y, z));
+		}
+
+		public double Max() {
+			return Math.Max(x, Math.Max(y, z));
 		}
 
 		public override string ToString() {

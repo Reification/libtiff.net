@@ -18,7 +18,7 @@ using System.Runtime.InteropServices;
 
 namespace GeoTiff2Unity {
 	using GTHeightRaster = Raster<float>;
-	using RawHeightRaster = Raster<ushort>;
+	using HeightRaster = Raster<ushort>;
 	using ColorRaster = Raster<ColorU8>;
 
 	public class Converter {
@@ -60,7 +60,9 @@ namespace GeoTiff2Unity {
 
 			loadRGBHeader();
 
-			computeAlignedTiling();
+			computeAlignment();
+
+			computePrimaryTileSizes();
 
 			processHeightMap();
 
@@ -90,20 +92,65 @@ namespace GeoTiff2Unity {
 			}
 		}
 
-		void computeAlignedTiling() {
-			// no scaling - we're going to tile.
-			hmOutSizePix = hmHeader.sizePix;
-			rgbOutSizePix = rgbHeader.sizePix;
+		void computeAlignment() {
+			if (rgbHeader.tiePoints.Length != hmHeader.tiePoints.Length) {
+				Util.Warn("Input height map has {0} tie points, rgb image has {1}", hmHeader.tiePoints.Length, rgbHeader.tiePoints.Length);
+			}
+
+			if (Math.Max(rgbHeader.tiePoints.Length, hmHeader.tiePoints.Length) > 1) {
+				Util.Warn("Tie points beyond index 0 ignored.");
+			}
+
+			if (rgbHeader.tiePoints[0].rasterPt != hmHeader.tiePoints[0].rasterPt) {
+				Util.Error("height map raster tie point {0} does not match rgb image raster tie point {1}",
+					(VectorD2)hmHeader.tiePoints[0].rasterPt, (VectorD2)rgbHeader.tiePoints[0].rasterPt);
+			}
+
+			var tiePointDelta = (VectorD2)(rgbHeader.tiePoints[0].modelPt - hmHeader.tiePoints[0].modelPt);
+
+			Util.Log("Tie Points:");
+			Util.Log("  Height Map: {0} {1}", hmHeader.tiePoints[0], hmHeader.geoKeys.rasterType);
+			Util.Log("  RGB Image: {0} {1}", rgbHeader.tiePoints[0], rgbHeader.geoKeys.rasterType);
+			Util.Log("  Proj Point Delta: {0} meters", tiePointDelta);
+			Util.Log("  Proj Point HM Pix Delta: {0}", tiePointDelta / (VectorD2)hmHeader.pixToProjScale);
+			Util.Log("  Proj Point RGB Pix Delta: {0}", tiePointDelta / (VectorD2)rgbHeader.pixToProjScale);
+
+			if (hmHeader.geoKeys.projLinearUnit != hmHeader.geoKeys.verticalLinearUnit) {
+				Util.Error("Mismatch between height map plane units {0} and height map vertical units {1}",
+					hmHeader.geoKeys.projLinearUnit, hmHeader.geoKeys.verticalLinearUnit);
+			}
+
+			if (hmHeader.geoKeys.projLinearUnit != rgbHeader.geoKeys.projLinearUnit) {
+				Util.Error("Mismatch between height map units {0} and rgb image units {1}",
+					hmHeader.geoKeys.projLinearUnit, rgbHeader.geoKeys.projLinearUnit);
+			}
+
+			{
+				double tpMisalign = (tiePointDelta.Abs() / (VectorD2)hmHeader.pixToProjScale).Max();
+
+				// misalignment ~1/2 height map pixel is accounted for by diff in raster types - one is pixIsArea the other pixIsPoint.
+				// see raster space doc: http://geotiff.maptools.org/spec/geotiff2.5.html
+
+				if (tpMisalign >= 2.0) {
+					Util.Error("  Tie Points excessively misaligned by {0} height map pixels ({1} {2})!",
+						tpMisalign, tpMisalign * hmHeader.pixToProjScale.Max(), hmHeader.geoKeys.projLinearUnit);
+				} else if (tpMisalign >= 1.0) {
+					Util.Warn("  Tie Points misaligned by {0} height map pixels ({1} {2})!",
+						tpMisalign, tpMisalign * hmHeader.pixToProjScale.Max(), hmHeader.geoKeys.projLinearUnit);
+				}
+			}
 
 			/// HACK!
 			rgbHeader.pixToProjScale = (VectorD2)((VectorD2)(rgbHeader.pixToProjScale)).Max();
 
-			hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
-			rgbToHMPixScale = rgbHeader.pixToProjScale / hmHeader.pixToProjScale;
 
-			computeAlignment();
+			// we're going with the notion that the height and rgb maps line up.
+			//hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
+			hmToRGBPixScale = rgbHeader.sizePix / hmHeader.sizePix;
+		}
 
-			hmOutTileSizePix = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmOutSizePix.Min()), hmOutMaxTexSize);
+		void computePrimaryTileSizes() {
+			hmOutTileSizePix = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmHeader.sizePix.Min()), hmOutMaxTexSize);
 
 			VectorD2 rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
 
@@ -111,34 +158,26 @@ namespace GeoTiff2Unity {
 				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 2);
 				rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
 			}
-
-			VectorD2 tileCounts = (hmOutSizePix / hmOutTileSizePix).Ceiling();
-
-			Util.Log("\nOutput will be {0} ({1}) tiles.", tileCounts, tileCounts.x * tileCounts.y );
-			Util.Log("  Height map tile size: {0}", hmOutTileSizePix);
-			Util.Log("  RGB texture tile size: {0}\n", rgbOutTileSizePix);
 		}
 
 		void processHeightMap() {
-			RawHeightRaster hmRasterOut = null;
+			HeightRaster hmRasterOut = null;
 
 			{
 				var hmRasterIn = new GTHeightRaster();
 				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
-				Util.Log("Converting {0} geotiff height map to {1} Unity ready {2} sized raw tiles.",
+				Util.Log("Converting {0} geotiff height map to {1} Unity ready {2} sized rare tiles.",
 					GTHeightRaster.pixelTypeName,
-					RawHeightRaster.pixelTypeName,
+					HeightRaster.pixelTypeName,
 					hmOutTileSizePix);
 
 				hmRasterIn = processHeightMapData(hmRasterIn);
 
 				float gtToRawTrans = (float)-hmHeader.minSampleValue;
-				float gtToRawScale = RawHeightRaster.maxChannelValue/(float)(hmHeader.maxSampleValue - hmHeader.minSampleValue);
-				hmRasterOut = hmRasterIn.Convert(new RawHeightRaster(), gtToRawTrans, gtToRawScale);
+				float gtToRawScale = HeightRaster.maxChannelValue/(float)(hmHeader.maxSampleValue - hmHeader.minSampleValue);
+				hmRasterOut = hmRasterIn.Convert(new HeightRaster(), gtToRawTrans, gtToRawScale);
 			}
-
-			bool hmOutYFlipNeeded = false;
 
 			// Unity height map textures are (by default) bottom to top.
 			switch (hmHeader.orientation) {
@@ -152,87 +191,75 @@ namespace GeoTiff2Unity {
 				break;
 			}
 
-			VectorD2 hmTileRegion = (VectorD2)0;
-			VectorD2 hmTileCoords = (VectorD2)0;
-			VectorD2 hmTileOrigin = (VectorD2)0;
-
-			uint tileCount = 0;
-			for ( ; (hmTileOrigin.y + hmOutTileSizePix.y) < hmOutSizePix.y; hmTileCoords.y++) {
-				hmTileCoords.x = 0;
-				hmTileOrigin.x = 0;
-				for ( ; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; hmTileCoords.x++) {
-					var hmTileRaster = hmRasterOut.Clone(hmTileOrigin, hmOutTileSizePix);
-
-					string hmTileOutPath = genHMRawOutPath(hmTileRegion, hmTileCoords, hmTileRaster);
-#if SAVE_TIFF_HEIGHT_TILES
-					writeRGBTiffOut(hmTileOutPath.Replace(".r9nh", ".tif"), hmTileRaster);
-#endif
-					if ( hmOutYFlipNeeded ) {
-						hmTileRaster.YFlip();
-					}
-					writeRareTileOut(hmTileOutPath, hmTileRaster);
-					Util.Log("  wrote tile {0}", hmTileOutPath);
-					hmTileOrigin.x += hmOutTileSizePix.x;
-					tileCount++;
-				}
-				hmTileOrigin.y += hmOutTileSizePix.y;
-			}
-
-			if (hmTileOrigin != hmOutSizePix) {
-				Util.Warn("  Unhandled input leftover edges {0}", hmOutSizePix - hmTileOrigin);
-			}
+			generateTiles(hmRasterOut, null, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
 		void processRGBImage() {
-			VectorD2 rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Round();
-
 			var rgbRaster = new ColorRaster();
 
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
-			Util.Log("Converting RGB geotiff image to Unity ready {0} sized tiff tiles.", rgbOutTileSizePix);
+			Util.Log("Converting RGB geotiff image to Unity ready {0} sized tiff tiles.", (hmOutTileSizePix * hmToRGBPixScale).Round());
 
-			rgbRaster = processRGBData(rgbRaster);
+			generateTiles(null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+		}
 
-			VectorD2 hmTileRegion = (VectorD2)0;
-			VectorD2 hmTileOrigin = (VectorD2)0;
-			VectorD2 rgbTileCoords = (VectorD2)0;
-			VectorD2 rgbTileOrigin = (VectorD2)0;
+		void generateTiles(HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
+			VectorD2 hmTileCoords = 0;
+			VectorD2 hmTileOrigin = hmRgnOrigin;
+			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSizePix;
 
-			VectorD2 bcTileSizePix = (rgbOutTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
+			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Round();
+			VectorD2 bcRgnTileSizePix = (rgbRgnTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
+			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSizePix != bcRgnTileSizePix));
 
-			if (rgbScaleToEvenBCBlockSize && rgbOutTileSizePix != bcTileSizePix) {
+			if (rgbTileScaleNeeded) {
 				Util.Log("  RGB tiles will be scaled to {1}, multiple of {0} for compatibility with block compression algorithms.",
-					bcTileSizePix,
-					kBCBlockSize );
+					bcRgnTileSizePix,
+					kBCBlockSize);
 			}
 
-			uint tileCount = 0;
-			for (; (hmTileOrigin.y + hmOutTileSizePix.y) < hmOutSizePix.y; rgbTileCoords.y++) {
-				hmTileOrigin.x = 0;
-				rgbTileCoords.x = 0;
-				rgbTileOrigin.x = 0;
+			for (; (hmTileOrigin.y + hmRgnTileSizePix.y) < hmRgnEnd.y; hmTileOrigin.y += hmRgnTileSizePix.y) {
 
-				for (; (hmTileOrigin.x + hmOutTileSizePix.x) < hmOutSizePix.x; rgbTileCoords.x++) {
-					var rgbTile = rgbRaster.Clone(rgbTileOrigin, rgbOutTileSizePix);
+				for (hmTileOrigin.x = hmRgnOrigin.x; (hmTileOrigin.x + hmRgnTileSizePix.x) < hmRgnEnd.x; hmTileOrigin.x += hmRgnTileSizePix.x) {
+					if (hmRasterOut != null) {
+						var hmTileRaster = hmRasterOut.Clone(hmTileOrigin, hmRgnTileSizePix);
+						string hmTileOutPath = genHMRawOutPath(regionId, hmTileCoords, hmTileRaster);
+#if SAVE_TIFF_HEIGHT_TILES
+						writeRGBTiffOut(hmTileOutPath.Replace(".r9nh", ".tif"), hmTileRaster);
+#endif
+						if (hmOutYFlipNeeded) {
+							hmTileRaster.YFlip();
+						}
 
-					if ( rgbScaleToEvenBCBlockSize && rgbOutTileSizePix != bcTileSizePix ) {
-						rgbTile = rgbTile.Scaled( bcTileSizePix );
+						writeRawTileOut(hmTileOutPath, hmTileRaster);
+						Util.Log("  wrote tile {0}", hmTileOutPath);
+					} else if (rgbRasterOut != null) {
+						var rgbTileOrigin = (hmTileOrigin * hmToRGBPixScale).Round();
+						var rgbTileRaster = rgbRasterOut.Clone(rgbTileOrigin, rgbRgnTileSizePix); ;
+
+						if (rgbTileScaleNeeded) {
+							rgbTileRaster = rgbTileRaster.Scaled(bcRgnTileSizePix);
+						}
+
+						string rgbTileOutPath = genRGBTiffOutPath(regionId, hmTileCoords, rgbTileRaster);
+
+						writeRGBTiffOut(rgbTileOutPath, rgbTileRaster, rgbHeader.orientation);
+						Util.Log("  wrote tile {0}", rgbTileOutPath);
 					}
 
-					string rgbTileOutPath = genRGBTiffOutPath(hmTileRegion, rgbTileCoords, rgbTile);
-					writeRGBTiffOut(rgbTileOutPath, rgbTile, rgbHeader.orientation);
-					Util.Log("  wrote tile {0}", rgbTileOutPath);
-					hmTileOrigin.x += hmOutTileSizePix.x;
-					rgbTileOrigin.x += rgbOutTileSizePix.x;
-					tileCount++;
+					hmTileCoords.x++;
 				}
-				hmTileOrigin.y += hmOutTileSizePix.y;
-				rgbTileOrigin.y += rgbOutTileSizePix.y;
+
+				hmTileCoords.x = 0;
+				hmTileCoords.y++;
 			}
 
-			if ( rgbTileOrigin != rgbOutSizePix ) {
-				Util.Warn("  Unhandled input leftover edges {0}", rgbOutSizePix - rgbTileOrigin);
+			if (hmTileOrigin != hmRgnEnd) {
+				VectorD2 cornerSize = hmRgnEnd - hmTileOrigin;
+				VectorD2 rightEdgeSize = new VectorD2 { x = cornerSize.x, y = hmRgnSizePix.y };
+				VectorD2 bottomEdgeSize = new VectorD2 { x = hmRgnSizePix.x, y = cornerSize.y };
+				VectorD2 newTileSize = (VectorD2)calcHeightMapSizeLTE(rightEdgeSize.Min());
 			}
 		}
 
@@ -279,80 +306,6 @@ namespace GeoTiff2Unity {
 
 		ColorRaster processRGBData(ColorRaster rgbRaster) {
 			return rgbRaster;
-		}
-
-		void computeAlignment() {
-			if (rgbHeader.tiePoints.Length != hmHeader.tiePoints.Length) {
-				Util.Warn("Input height map has {0} tie points, rgb image has {1}", hmHeader.tiePoints.Length, rgbHeader.tiePoints.Length);
-			}
-
-			if (Math.Max(rgbHeader.tiePoints.Length, hmHeader.tiePoints.Length) > 1) {
-				Util.Warn("Tie points beyond index 0 ignored.");
-			}
-
-			if (rgbHeader.tiePoints[0].rasterPt != hmHeader.tiePoints[0].rasterPt) {
-				Util.Error("height map raster tie point {0} does not match rgb image raster tie point {1}",
-					(VectorD2)hmHeader.tiePoints[0].rasterPt, (VectorD2)rgbHeader.tiePoints[0].rasterPt);
-			}
-
-			var tiePointDelta = (VectorD2)(rgbHeader.tiePoints[0].modelPt - hmHeader.tiePoints[0].modelPt);
-
-			Util.Log("Tie Points:");
-			Util.Log("  Height Map: {0} {1}", hmHeader.tiePoints[0], hmHeader.geoKeys.rasterType);
-			Util.Log("  RGB Image: {0} {1}", rgbHeader.tiePoints[0], rgbHeader.geoKeys.rasterType);
-			Util.Log("  Proj Point Delta: {0} meters", tiePointDelta);
-			Util.Log("  Proj Point HM Pix Delta: {0}", tiePointDelta / (VectorD2)hmHeader.pixToProjScale);
-			Util.Log("  Proj Point RGB Pix Delta: {0}", tiePointDelta / (VectorD2)rgbHeader.pixToProjScale);
-
-			if (hmHeader.geoKeys.projLinearUnit != hmHeader.geoKeys.verticalLinearUnit) {
-				Util.Error("Mismatch between height map plane units {0} and height map vertical units {1}", hmHeader.geoKeys.projLinearUnit, hmHeader.geoKeys.verticalLinearUnit);
-			}
-
-			if (hmHeader.geoKeys.projLinearUnit != rgbHeader.geoKeys.projLinearUnit) {
-				Util.Error("Mismatch between height map units {0} and rgb image units {1}", hmHeader.geoKeys.projLinearUnit, rgbHeader.geoKeys.projLinearUnit);
-			}
-
-			// misalignment seen is within bounds of 1/2 height map pixel - accounted for by diff in raster types - one is pixIsArea the other pixIsPoint.
-			// see raster space doc: http://geotiff.maptools.org/spec/geotiff2.5.html
-#if false
-			//
-			// TODO: take raster space pixel is point vs pixel is area into account when computing alignment.
-			//
-			if (rgbHeader.tiePoints[0].modelPt != hmTiffHeader.tiePoints[0].modelPt) {
-				VectorD2 alignmentOffset = rgbHeader.tiePoints[0].modelPt - hmTiffHeader.tiePoints[0].modelPt;
-
-				// TODO: find out if pixel row y+ corresponds to world space y+ (north)
-				// or if image is displayed north up (y+ is south and therefor negative)
-				if (rgbHeader.tiePoints[0].rasterPt.y == 0) {
-					alignmentOffset.y *= -1;
-				}
-
-				alignmentOffset *= (VectorD2)hmToRGBPixScale;
-
-				if(alignmentOffset.x < 0) {
-					rgbToHMPixTrans.x = -alignmentOffset.x;
-				} else {
-					hmToRGBPixTrans.x = alignmentOffset.x;
-				}
-
-				if (alignmentOffset.y < 0) {
-					rgbToHMPixTrans.y = -alignmentOffset.y;
-				} else {
-					hmToRGBPixTrans.y = alignmentOffset.y;
-				}
-
-				//
-				// TODO: verify above is correct
-				//
-			}
-
-			//
-			// TODO:
-			// if either of the hmToRGBPixTrans or rgbToHMPixTrans are non-zero
-			// trim one at the top and the other at the bottom to get them to line up vertically.
-			// and trim one at the left and the other at the right to get them to line up horizontally.
-			//
-#endif // false
 		}
 
 		static Tiff loadGeoTiffHeader(GeoTiffHeader hdr, string path) {
@@ -432,7 +385,7 @@ namespace GeoTiff2Unity {
 			tiff = null;
 		}
 
-		void writeRareTileOut<T>(string path, Raster<T> raster) where T : struct {
+		void writeRawTileOut<T>(string path, Raster<T> raster) where T : struct {
 			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
 				HeightTileHeader hdr = new HeightTileHeader();
 				hdr.Init<T>(raster.width, (float)hmHeader.pixToProjScale.Max(), (float)hmHeader.minSampleValue, (float)hmHeader.maxSampleValue);
@@ -490,7 +443,7 @@ namespace GeoTiff2Unity {
 		static readonly string hmRawOutPathFmt = "{0}/.HeightMaps/{1}_HM_{2:D2}-{3:D2}_{4:D3}-{5:D3}.r9nh";
 		static readonly string hmRGBOutPathFmt = "{0}/{1}_RGB_{2:D2}-{3:D2}_{4:D3}-{5:D3}.tif";
 
-		string genHMRawOutPath(VectorD2 tileRegion, VectorD2 tilePos, RawHeightRaster hmRaster) {
+		string genHMRawOutPath(VectorD2 tileRegion, VectorD2 tilePos, HeightRaster hmRaster) {
 			string outDir = Path.GetDirectoryName(outPathBase);
 			string outNameBase = Path.GetFileName(outPathBase);
 			bool isFloat = (hmRaster.getChannelType() == typeof(float));
@@ -518,19 +471,12 @@ namespace GeoTiff2Unity {
 
 		Tiff hmTiffIn = null;
 		GeoTiffHeader hmHeader = new GeoTiffHeader();
-
-		VectorD2 hmOutSizePix = (VectorD2)0;
+		bool hmOutYFlipNeeded = false;
 
 		Tiff rgbTiffIn = null;
 		GeoTiffHeader rgbHeader = new GeoTiffHeader();
 
-		VectorD2 rgbOutSizePix = (VectorD2)0;
-
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
-		VectorD2 rgbToHMPixScale = (VectorD2)0;
-		// may be used for handling misalignment between height and tiff - not needed for current data sources.
-		//VectorD2 hmToRGBPixTrans = (VectorD2)0;
-		//VectorD2 rgbToHMPixTrans = (VectorD2)0;
 
 		/// @TODO: sizes for additional horizontal and verticlal tiles
 		/// to cover as much of heightmap as can be done with sums of legally sized tiles.
