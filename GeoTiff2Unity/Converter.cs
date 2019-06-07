@@ -219,37 +219,42 @@ namespace GeoTiff2Unity {
 			generateTiles(0, null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
-		void generateTiles(uint recursionDepth, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSizePix, VectorD2 hmRgnTileSizePix) {
+		void generateTiles(uint recursionDepth, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSize, VectorD2 hmRgnTileSize) {
 			if (regionIdSet.Contains(regionId)) {
 				Util.Error("[{0}] regionId collision! {1} already used", recursionDepth, regionId);
 			}
 
 			regionIdSet.Add(regionId);
 
-			if (hmRgnTileSizePix.Min() < hmOutMinTexSize) {
+			if (hmRgnTileSize.Min() < hmOutMinTexSize) {
 				Util.Log("\n[{0}] Skipping region {1}, size {2}, height tile size {3} below min height tile size {4}",
-					recursionDepth, regionId, hmRgnSizePix, hmRgnTileSizePix, hmOutMinTexSize);
+					recursionDepth, regionId, hmRgnSize, hmRgnTileSize, hmOutMinTexSize);
 				return;
 			}
 
-			VectorD2 rgbRgnTileSizePix = (hmRgnTileSizePix * hmToRGBPixScale).Floor();
+			VectorD2 rgbRgnTileSizePix = (hmRgnTileSize * hmToRGBPixScale).Floor();
 			VectorD2 bcRgnTileSizePix = (rgbRgnTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
 			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSizePix != bcRgnTileSizePix));
 
 			HeightRaster hmTileRaster = new HeightRaster();
 			ColorRaster rgbTileRaster = new ColorRaster();
 
-			VectorD2 hmRgnGridSize = (hmRgnSizePix / hmRgnTileSizePix).Floor();
+			VectorD2 hmRgnGridSize = (hmRgnSize / hmRgnTileSize).Floor();
+			VectorD2 hmCoveredRgnSize = (hmRgnGridSize * hmRgnTileSize);
+
+			if ((hmRgnSize - hmCoveredRgnSize).Min() < 0) {
+				Util.Error("internal error: coverage exceeds region!");
+			}
 
 			if (hmRasterOut != null) {
 				Util.Log("\n[{0}] Writing {1} grid of {2} sized {3} height tiles for region {4}, sized {5}", 
-					recursionDepth, hmRgnGridSize, hmRgnTileSizePix, HeightRaster.pixelTypeName, regionId, hmRgnSizePix);
-				hmTileRaster.Init(hmRgnTileSizePix);
+					recursionDepth, hmRgnGridSize, hmRgnTileSize, HeightRaster.pixelTypeName, regionId, hmRgnSize);
+				hmTileRaster.Init(hmRgnTileSize);
 			}
 
 			if (rgbRasterOut != null) {
 				Util.Log("\n[{0}] Writing {1} grid of {2} sized RGB tiles matching {3} sized height tiles for region {4}, sized {5}", 
-					recursionDepth, hmRgnGridSize, rgbRgnTileSizePix, hmRgnTileSizePix, regionId, hmRgnSizePix);
+					recursionDepth, hmRgnGridSize, rgbRgnTileSizePix, hmRgnTileSize, regionId, hmRgnSize);
 				rgbTileRaster.Init(rgbRgnTileSizePix);
 			}
 
@@ -262,17 +267,17 @@ namespace GeoTiff2Unity {
 
 			VectorD2 hmTileCoords = 0;
 			VectorD2 hmTileOrigin = hmRgnOrigin;
-			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSizePix;
+			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSize;
 
-			for (; (hmTileOrigin.y + hmRgnTileSizePix.y) < hmRgnEnd.y; hmTileOrigin.y += hmRgnTileSizePix.y) {
+			for (; (hmTileOrigin.y + hmRgnTileSize.y) < hmRgnEnd.y; hmTileOrigin.y += hmRgnTileSize.y) {
 
-				for (hmTileOrigin.x = hmRgnOrigin.x; (hmTileOrigin.x + hmRgnTileSizePix.x) < hmRgnEnd.x; hmTileOrigin.x += hmRgnTileSizePix.x) {
+				for (hmTileOrigin.x = hmRgnOrigin.x; (hmTileOrigin.x + hmRgnTileSize.x) < hmRgnEnd.x; hmTileOrigin.x += hmRgnTileSize.x) {
 					if (hmRasterOut != null) {
 						hmRasterOut.GetRect(hmTileRaster, hmTileOrigin);
 
 #if DEBUG_RECURSION_COVERAGE
-						hmRasterOut.Clear(ushort.MaxValue, hmTileOrigin, hmRgnTileSizePix);
-						hmRasterOut.Clear(ushort.MinValue, hmTileOrigin + (VectorD2)2, hmRgnTileSizePix - (VectorD2)4);
+						hmRasterOut.Clear(ushort.MaxValue, hmTileOrigin, hmRgnTileSize);
+						hmRasterOut.Clear(ushort.MinValue, hmTileOrigin + (VectorD2)2, hmRgnTileSize - (VectorD2)4);
 #endif
 
 						string hmTileOutPath = genHMRawOutPath(regionId, hmTileCoords, hmTileRaster);
@@ -309,52 +314,61 @@ namespace GeoTiff2Unity {
 				hmTileCoords.y++;
 			}
 
-			// hmTileOrigin has been iterated to be at bottom right corner of covered part of region.
+			VectorD2 hmCoveredRgnEnd = hmRgnOrigin + hmCoveredRgnSize;
 
-			if (hmTileOrigin.Truncate() != hmRgnEnd.Truncate()) {
-				VectorD2 edgeSizes = hmRgnEnd - hmTileOrigin;
+			// hmTileOrigin should have been iterated to be at bottom right corner of covered part of region.
+			if (hmTileOrigin != hmCoveredRgnEnd) {
+				Util.Error( "internal error: tile traversal fubar!" );
+			}
 
-				VectorD2 rightEdgeSize = (edgeSizes * VectorD2.v10) + ((hmRgnSizePix - edgeSizes) * VectorD2.v01);
-				VectorD2 bottomEdgeSize = ((hmRgnSizePix - edgeSizes) * VectorD2.v10) + (edgeSizes * VectorD2.v01);
+			VectorD2 hmEdgeSizes = hmRgnSize - hmCoveredRgnSize;
 
+			if (hmEdgeSizes != (hmRgnEnd - hmCoveredRgnEnd)) {
+				Util.Error("internal error: tile arithmetic fubar!");
+			}
+
+			if (hmEdgeSizes == 0) {
+				Util.Log("  [{0}] Region {1} finished with an exact fit.", recursionDepth, regionId);
+				return;
+			}
+
+			{
 				// whichever edge is wider gets the corner.
-				if (edgeSizes.x > edgeSizes.y) {
-					rightEdgeSize.y += edgeSizes.y;
+				bool cornerGoesToRightEdge = (hmEdgeSizes.x > hmEdgeSizes.y);
+
+				VectorD2 rightEdgeSize;
+				VectorD2 bottomEdgeSize;
+
+				if (cornerGoesToRightEdge) {
+					rightEdgeSize = (hmEdgeSizes * VectorD2.v10) + (hmRgnSize * VectorD2.v01);
+					bottomEdgeSize = ((hmRgnSize - hmEdgeSizes) * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
 				} else {
-					bottomEdgeSize.x += edgeSizes.x;
+					rightEdgeSize = (hmEdgeSizes * VectorD2.v10) + ((hmRgnSize - hmEdgeSizes) * VectorD2.v01);
+					bottomEdgeSize = (hmRgnSize * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
 				}
 
-				Util.Log("  [{0}] Region {1} finishged with pending right/bottom edges {2}", recursionDepth, regionId, edgeSizes);
+				Util.Log("  [{0}] Region {1} finishged with pending edge region sizes right: {2}{3} bottom: {4}{5}", 
+					recursionDepth, regionId, 
+					rightEdgeSize, cornerGoesToRightEdge ? "(incl. corner)" : "",
+					bottomEdgeSize, !cornerGoesToRightEdge ? "(incl. corner)" : "" );
 
-				VectorD2 newRegionId;
-				VectorD2 newRgnTileSizePix;
-				VectorD2 newRgnOrigin;
-				VectorD2 newRgnSize;
-
-				//uint idStepScale = (1u << (int)recursionDepth);
-				uint idStepScale = (recursionDepth + 1);
+				uint idStepSize = (recursionDepth + 1);
 
 				// recurse into right edge
-				{
-					newRegionId = regionId + (idStepScale * VectorD2.v10);
-					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v10);
-					newRgnSize = rightEdgeSize;
-					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
-
-					generateTiles(recursionDepth + 1, hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
-				}
+				generateTiles(	recursionDepth + 1,
+												hmRasterOut, rgbRasterOut,
+												regionId + (idStepSize * VectorD2.v10),
+												hmRgnOrigin + (hmCoveredRgnSize * VectorD2.v10), 
+												rightEdgeSize,
+												calcHeightMapSizeLTE(rightEdgeSize.Min()) );
 
 				// recurse into bottom edge
-				{
-					newRegionId = regionId + (idStepScale * VectorD2.v01);
-					newRgnOrigin = hmRgnOrigin + (hmTileOrigin * VectorD2.v01);
-					newRgnSize = bottomEdgeSize;
-					newRgnTileSizePix = (VectorD2)calcHeightMapSizeLTE(newRgnSize.Min());
-
-					generateTiles(recursionDepth + 1, hmRasterOut, rgbRasterOut, newRegionId, newRgnOrigin, newRgnSize, newRgnTileSizePix);
-				}
-			} else {
-				Util.Log("  [{0}] Region {1} finished with an exact fit.", recursionDepth, regionId);
+				generateTiles(	recursionDepth + 1,
+												hmRasterOut, rgbRasterOut,
+												regionId + (idStepSize * VectorD2.v01),
+												hmRgnOrigin + (hmCoveredRgnSize * VectorD2.v01),
+												bottomEdgeSize, 
+												calcHeightMapSizeLTE(bottomEdgeSize.Min()) );
 			}
 		}
 
