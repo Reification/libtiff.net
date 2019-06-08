@@ -91,62 +91,43 @@ namespace R9N {
 			}
 		}
 
-		public static HeightTileHeader Read<T>(string path, ref T[] samples) where T : struct {
-			bool typeIsFloat = ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)));
+		public static HeightTileHeader Read(string path, ref float[,] samples) {
 			var hdr = default(HeightTileHeader);
+			byte[] rawTile = null;
 
-			using (var inRaw = new FileStream(path, FileMode.Create, FileAccess.Write)) {
+			using (var inRaw = new FileStream(path, FileMode.Open, FileAccess.Read)) {
 				hdr = HeightTileHeader.Read(inRaw);
-
-				if (Marshal.SizeOf(typeof(T)) != hdr.bytesPerSample || typeIsFloat != (hdr.isFloat != 0)) {
-					throw new Exception("invalid sample type for this header.");
-				}
-
-				if (!(samples?.Length == (hdr.tileSizePix * hdr.tileSizePix))) {
-					samples = new T[hdr.tileSizePix * hdr.tileSizePix];
-				}
 
 				uint pitch = hdr.tileSizePix * hdr.bytesPerSample;
 
-				byte[] tmpStrip = new byte[kRowsPerStrip * pitch];
+				rawTile = new byte[hdr.tileSizePix * pitch];
 
-				for (uint y = 0; y < hdr.tileSizePix; y += kRowsPerStrip) {
-					uint stripRowByteCount = Math.Min(kRowsPerStrip, hdr.tileSizePix - y) * pitch;
-
-					inRaw.Read(tmpStrip, 0, (int)stripRowByteCount);
-
-					Buffer.BlockCopy(tmpStrip, 0, samples, (int)(y * pitch), (int)stripRowByteCount);
-				}
+				inRaw.Read(rawTile, 0, rawTile.Length);
 			}
 
-			return hdr;
-		}
+			if (!(samples?.GetLength(0) == hdr.tileSizePix && samples?.GetLength(1) == hdr.tileSizePix)) {
+				samples = new float[hdr.tileSizePix, hdr.tileSizePix];
+			}
 
-		public static HeightTileHeader Read<T>(string path, ref T[,] samples) where T : struct {
-			bool typeIsFloat = ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)));
-			var hdr = default(HeightTileHeader);
+			if (hdr.isFloat != 0) {
+				Buffer.BlockCopy(rawTile, 0, samples, 0, rawTile.Length);
+			} else if (hdr.bytesPerSample == 2) {
+				float hScale = 1.0f / ushort.MaxValue;
 
-			using (var inRaw = new FileStream(path, FileMode.Create, FileAccess.Write)) {
-				hdr = HeightTileHeader.Read(inRaw);
-
-				if (Marshal.SizeOf(typeof(T)) != hdr.bytesPerSample || typeIsFloat != (hdr.isFloat != 0)) {
-					throw new Exception("invalid sample type for this header.");
+				for (int y = 0, rr = 0; y < hdr.tileSizePix; y++, rr += (int)(hdr.tileSizePix << 1)) {
+					for (int x = 0, rx = 0; x < hdr.tileSizePix; x++, rx += 2) {
+						float fh = (rawTile[rr + rx] + (rawTile[rr + rx + 1] << 8)) * hScale;
+						samples[y, x] = fh;
+					}
 				}
+			} else if (hdr.bytesPerSample == 1) {
+				float hScale = 1.0f / byte.MaxValue;
 
-				if (!(samples?.GetLength(0) == hdr.tileSizePix && samples?.GetLength(1) == hdr.tileSizePix)) {
-					samples = new T[hdr.tileSizePix, hdr.tileSizePix];
-				}
-
-				uint pitch = hdr.tileSizePix * hdr.bytesPerSample;
-
-				byte[] tmpStrip = new byte[kRowsPerStrip * pitch];
-
-				for (uint y = 0; y < hdr.tileSizePix; y += kRowsPerStrip) {
-					uint stripRowByteCount = Math.Min(kRowsPerStrip, hdr.tileSizePix - y) * pitch;
-
-					inRaw.Read(tmpStrip, 0, (int)stripRowByteCount);
-
-					Buffer.BlockCopy(tmpStrip, 0, samples, (int)(y * pitch), (int)stripRowByteCount);
+				for (int y = 0, r = 0; y < hdr.tileSizePix; y++, r += (int)hdr.tileSizePix) {
+					for (int x = 0; x < hdr.tileSizePix; x++) {
+						float fh = rawTile[r + x] * hScale;
+						samples[y, x] = fh;
+					}
 				}
 			}
 
@@ -169,11 +150,21 @@ namespace R9N {
 		public float minTotalTerrainHeight;
 		public float maxTotalTerrainHeight;
 
+		public float tileSizeMeters {
+			get { return tileSizePix * pixToMeters; }
+		}
+
+		public float totalTerrainHeightRange {
+			get { return maxTotalTerrainHeight - minTotalTerrainHeight; }
+		}
+
 		public void Init<T>(uint wh, uint px, uint py, float pixSize, float minV, float maxV) where T : struct {
 			magic = kMagic;
 			tileSizePix = wh;
 			bytesPerSample = (uint)Marshal.SizeOf(typeof(T));
 			isFloat = ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double))) ? 1u : 0u;
+			posX = px;
+			posY = py;
 			pixToMeters = pixSize;
 			minTotalTerrainHeight = minV;
 			maxTotalTerrainHeight = maxV;
