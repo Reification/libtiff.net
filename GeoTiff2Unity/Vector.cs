@@ -7,6 +7,7 @@ namespace R9N {
 
 		public double width { get { return x; } }
 		public double height { get { return y; } }
+		public double area {  get { return x * y; } }
 
 		public VectorD2 Abs() {
 			return new VectorD2 { x = Math.Abs(x), y = Math.Abs(y) };

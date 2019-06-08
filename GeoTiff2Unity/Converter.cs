@@ -25,9 +25,11 @@ namespace GeoTiff2Unity {
 
 		public const uint kMinMaxRGBTexSize = 512;
 		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
-		public const bool kDefaultRGBScaleToEvenBCBlockSize = true;
+		public const int kDefaultRGBScaleToEvenBCBlockSize = 4;
+		public const int kMaxRGBScaleToEvenBCBlockSize = 6;
 
 		public const uint kMinHeightTexSize = 33;
+		public const uint kDefaultMinHeightTexSize = 65;
 		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
 
 		public RasterRotation preRotation = RasterRotation.None;
@@ -37,9 +39,9 @@ namespace GeoTiff2Unity {
 		public string outPathBase = null;
 
 		public uint hmOutMaxTexSize = kMaxHeightTexSize;
-		public uint hmOutMinTexSize = kMinHeightTexSize;
+		public uint hmOutMinTexSize = kDefaultMinHeightTexSize;
 		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
-		public bool rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
+		public int rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
 
 		public static bool IsValidHeightMapSize(uint sz) {
 			uint potCheck = sz - 1;
@@ -63,6 +65,12 @@ namespace GeoTiff2Unity {
 		}
 
 		void go() {
+			hmOutMinTexSize = Math.Max(hmOutMinTexSize, kMinHeightTexSize);
+			hmOutMaxTexSize = Math.Min(hmOutMaxTexSize, kMaxHeightTexSize);
+			rgbOutMaxTexSize = Math.Min(rgbOutMaxTexSize, kMaxRGBTexSize);
+			rgbScaleToEvenBCBlockSize = Math.Min(rgbScaleToEvenBCBlockSize, kMaxRGBScaleToEvenBCBlockSize);
+			rgbScaleToEvenBCBlockSize = (rgbScaleToEvenBCBlockSize < 0) ? 1 : (int)(kBCBlockSize * (1 << rgbScaleToEvenBCBlockSize));
+
 			loadHeightMapHeader();
 
 			loadRGBHeader();
@@ -217,7 +225,6 @@ namespace GeoTiff2Unity {
 				break;
 			}
 
-			Util.Log("");
 			ushort regionId = 0;
 			generateTiles(0, ref regionId, hmRasterOut, null, (VectorD2)0, hmHeader.sizePix, hmRegion0TileSize);
 
@@ -243,7 +250,6 @@ namespace GeoTiff2Unity {
 				rgbHeader.Rotate(preRotation);
 			}
 
-			Util.Log("");
 			ushort regionId = 0;
 			generateTiles(0, ref regionId, null, rgbRasterIn, (VectorD2)0, hmHeader.sizePix, hmRegion0TileSize);
 
@@ -289,8 +295,16 @@ namespace GeoTiff2Unity {
 			}
 
 			VectorD2 rgbRgnTileSize = (hmRgnTileSize * hmToRGBPixScale).Floor();
-			VectorD2 bcRgnTileSize = (rgbRgnTileSize / kBCBlockSize).Ceiling() * kBCBlockSize;
-			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSize != bcRgnTileSize));
+			VectorD2 bcRgnTileSize = rgbRgnTileSize;
+			if (rgbScaleToEvenBCBlockSize != 1)
+			{
+				VectorD2 bcRgnTileSizeUp = (rgbRgnTileSize / rgbScaleToEvenBCBlockSize).Ceiling() * rgbScaleToEvenBCBlockSize;
+				VectorD2 bcRgnTileSizeDown = (rgbRgnTileSize / rgbScaleToEvenBCBlockSize).Floor() * rgbScaleToEvenBCBlockSize;
+				double deltaAreaUp = bcRgnTileSizeUp.area - rgbRgnTileSize.area;
+				double deltaAreaDown = rgbRgnTileSize.area - bcRgnTileSizeDown.area;
+				bcRgnTileSize = (deltaAreaUp <= deltaAreaDown) ? bcRgnTileSizeUp : bcRgnTileSizeDown;
+			}
+			bool rgbTileScaleNeeded = (rgbRasterOut != null) && (rgbRgnTileSize != bcRgnTileSize);
 
 			HeightRaster hmTileRaster = new HeightRaster();
 			ColorRaster rgbTileRaster = new ColorRaster();
@@ -315,11 +329,12 @@ namespace GeoTiff2Unity {
 			}
 
 			if (rgbTileScaleNeeded) {
-				Util.Log("  [{0}-{1:x4}] RGB tiles will be scaled to {2}, multiple of {3} for compatibility with block compression algorithms.",
+				Util.Log("  [{0}-{1:x4}] RGB tiles will be scaled {2} to {3}, multiple of {4} for compatibility with block compression algorithms.",
 					recursionDepth,
 					regionId,
+					bcRgnTileSize.x > rgbRgnTileSize.x  ? "up" : "down",
 					bcRgnTileSize,
-					kBCBlockSize);
+					rgbScaleToEvenBCBlockSize);
 			}
 
 			VectorD2 hmTileCoords = 0;
@@ -385,26 +400,22 @@ namespace GeoTiff2Unity {
 			}
 
 			{
-				// whichever edge is wider gets the corner.
-				bool cornerGoesToRightEdge = (hmEdgeSizes.x > hmEdgeSizes.y);
+				VectorD2 rightEdgeSize = (hmEdgeSizes * VectorD2.v10) + ((hmRgnSize - hmEdgeSizes) * VectorD2.v01);
+				VectorD2 bottomEdgeSize = ((hmRgnSize - hmEdgeSizes) * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
 
-				VectorD2 rightEdgeSize;
-				VectorD2 bottomEdgeSize;
+				// widest edge gets the corner.
+				bool cornerGoesToRightEdge = (hmEdgeSizes.x >= hmEdgeSizes.y);
 
 				if (cornerGoesToRightEdge) {
-					rightEdgeSize = (hmEdgeSizes * VectorD2.v10) + (hmRgnSize * VectorD2.v01);
-					bottomEdgeSize = ((hmRgnSize - hmEdgeSizes) * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
+					rightEdgeSize.y = hmRgnSize.y;
 				} else {
-					rightEdgeSize = (hmEdgeSizes * VectorD2.v10) + ((hmRgnSize - hmEdgeSizes) * VectorD2.v01);
-					bottomEdgeSize = (hmRgnSize * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
+					bottomEdgeSize.x = hmRgnSize.x;
 				}
 
 				Util.Log("  [{0}-{1:x4}] Region finishged with pending edge region sizes right: {2}{3} bottom: {4}{5}", 
 					recursionDepth, regionId, 
 					rightEdgeSize, cornerGoesToRightEdge ? "(incl. corner)" : "",
 					bottomEdgeSize, !cornerGoesToRightEdge ? "(incl. corner)" : "" );
-
-				uint idStepSize = (1u << (int)recursionDepth);
 
 				// recurse into right edge
 				regionId++;

@@ -7,7 +7,7 @@ namespace GeoTiff2Unity {
 	class Program {
 		static private string appName = "GeoTiff2Raw";
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-rotateCCW=<90|180|270>] [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<true|false>] <outputNameBase>",
+			appName + " <inputHeight.tif> <inputRGB.tif> [-rotateCCW=<90|180|270>] [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<miplevel>] <outputNameBase>",
 			"  <inputHeight.tif>: source 32 bit float height map image",
 			"  <inputRGB.tif>: source RGB texture matching height map",
 			"  -rotateCCW=<90|180|270>: optional.",
@@ -16,14 +16,15 @@ namespace GeoTiff2Unity {
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMaxHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
 			"  -minheighttex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMinHeightTexSize + ".",
+			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kDefaultMinHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
 			"  -maxrgbtex=<size_in_pix>: optional.",
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxRGBTexSize) + ". default is " + Converter.kMaxRGBTexSize + ".",
-			"  -scalergbtoevenblocksize=<true|false>: optional.",
-			"    if true rgb tiles will be scaled up to next multiple of BC block size (4).",
-			"    default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize,
-			"    set to false if forcing PoT tex size in Unity.",
+			"  -scalergbtoevenblocksize=<miplevel>: optional.",
+			"    if >= 0 rgb tiles will be scaled up to next multiple of BC block size (4 * (2^<mipLevel>)) to support compression to <miplevel>.",
+			"    default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize  + ", max value is " + Converter.kMaxRGBScaleToEvenBCBlockSize,
+			"    if -1 no size adjustment will be done.",
+			"    set to -1 if forcing PoT tex size in Unity.",
 			"  <outputNameBase>: base name for output height map and rgb assets.",
 		};
 
@@ -88,7 +89,8 @@ namespace GeoTiff2Unity {
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !bool.TryParse(nameValPair[1], out cnv.rgbScaleToEvenBCBlockSize) ) {
+						if ( !int.TryParse(nameValPair[1], out cnv.rgbScaleToEvenBCBlockSize) ||
+							   cnv.rgbScaleToEvenBCBlockSize > Converter.kMaxRGBScaleToEvenBCBlockSize ) {
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
