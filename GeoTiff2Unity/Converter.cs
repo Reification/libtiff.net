@@ -2,7 +2,10 @@
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
 //#define SAVE_TIFF_HEIGHT_TILES
-#define DEBUG_RECURSION_COVERAGE
+// when enabled areas of source raster are cleared with white bordered black rectangles as they are covered.
+// uncovered areas are cleared to gray. the modified height & rgb maps are saved as tiffs in .HeightMaps/
+// along with the height map tiles.
+//#define DEBUG_RECURSION_COVERAGE
 
 using System;
 using System.IO;
@@ -77,7 +80,11 @@ namespace GeoTiff2Unity {
 
 			processHeightMap();
 
-			//processRGBImage();
+			processRGBImage();
+
+			if (regionIdSet.Count != 0) {
+				Util.Error( "{0} height tiles are missing corresponding RGB images!", regionIdSet.Count );
+			}
 		}
 
 		void loadHeightMapHeader() {
@@ -190,6 +197,12 @@ namespace GeoTiff2Unity {
 
 				hmRasterIn = processHeightMapData(hmRasterIn);
 
+				if (preRotation != RasterRotation.None) {
+
+					hmRasterIn.Rotate(preRotation);
+					hmHeader.Rotate(preRotation);
+				}
+
 				float gtToRawTrans = (float)-hmHeader.minSampleValue;
 				float gtToRawScale = HeightRaster.maxChannelValue/(float)(hmHeader.maxSampleValue - hmHeader.minSampleValue);
 				hmRasterOut = hmRasterIn.Convert(new HeightRaster(), gtToRawTrans, gtToRawScale);
@@ -211,36 +224,74 @@ namespace GeoTiff2Unity {
 			generateTiles(0, (VectorD2)0, hmRasterOut, null, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 
 #if DEBUG_RECURSION_COVERAGE
-		writeRGBTiffOut(Path.GetDirectoryName(outPathBase) + "/hmCoverage.tif", hmRasterOut);
+		writeRGBTiffOut(Path.GetDirectoryName(outPathBase) + "/" + hmRawOutSubDirName + "/hmCoverage.tif", hmRasterOut);
 #endif
 		}
 
 		void processRGBImage() {
-			var rgbRaster = new ColorRaster();
+			var rgbRasterIn = new ColorRaster();
 
 			Util.Log("");
-			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
+			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRasterIn);
+
+			if (preRotation != RasterRotation.None) {
+
+				rgbRasterIn.Rotate(preRotation);
+
+				if (hmHeader.sizePix != rgbRasterIn.GetSizePix()) {
+					hmToRGBPixScale = hmToRGBPixScale.yx;
+				}
+
+				rgbHeader.Rotate(preRotation);
+			}
 
 			Util.Log("");
-			generateTiles(0, (VectorD2)0, null, rgbRaster, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+			generateTiles(0, (VectorD2)0, null, rgbRasterIn, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+
+#if DEBUG_RECURSION_COVERAGE
+			writeRGBTiffOut(Path.GetDirectoryName(outPathBase) + "/" + hmRawOutSubDirName + "/rgbCoverage.tif", rgbRasterIn);
+#endif
 		}
 
 		void generateTiles(uint recursionDepth, VectorD2 regionId, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 hmRgnOrigin, VectorD2 hmRgnSize, VectorD2 hmRgnTileSize) {
-			if (regionIdSet.Contains(regionId)) {
-				Util.Error("[{0}{1}] RegionId collision!", recursionDepth, regionId);
-			}
+			if (hmRasterOut != null) {
+				if (regionIdSet.Contains(regionId)) {
+					Util.Error("[{0}{1}] Height tile pass: regionId collision!", recursionDepth, regionId);
+				}
 
-			regionIdSet.Add(regionId);
+				regionIdSet.Add(regionId);
+			} else if (rgbRasterOut != null) {
+				if (!regionIdSet.Contains(regionId)) {
+					Util.Error("[{0}{1}] RGB tile pass: regionId collision or variance from height tile pass!", recursionDepth, regionId);
+				}
+
+				regionIdSet.Remove(regionId);
+			}
 
 			if (hmRgnTileSize.Min() < hmOutMinTexSize) {
 				Util.Log("\n[{0}-{1}] Skipping region size {2}, height tile size {3} below min height tile size {4}",
 					recursionDepth, regionId, hmRgnSize, hmRgnTileSize, hmOutMinTexSize);
+
+#if DEBUG_RECURSION_COVERAGE
+				if (hmRasterOut != null) {
+					ushort gray = (ushort.MaxValue >> 1);
+					hmRasterOut.Clear(gray, hmRgnOrigin, hmRgnSize);
+				}
+
+				if (rgbRasterOut != null) {
+					ColorU8 gray = ColorU8.white;
+					gray.r >>= 1; gray.g >>= 1; gray.b >>= 1;
+
+					rgbRasterOut.Clear(gray, (hmRgnOrigin * hmToRGBPixScale).Floor(), (hmRgnSize * hmToRGBPixScale).Floor());
+				}
+#endif
+
 				return;
 			}
 
-			VectorD2 rgbRgnTileSizePix = (hmRgnTileSize * hmToRGBPixScale).Floor();
-			VectorD2 bcRgnTileSizePix = (rgbRgnTileSizePix / kBCBlockSize).Ceiling() * kBCBlockSize;
-			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSizePix != bcRgnTileSizePix));
+			VectorD2 rgbRgnTileSize = (hmRgnTileSize * hmToRGBPixScale).Floor();
+			VectorD2 bcRgnTileSize = (rgbRgnTileSize / kBCBlockSize).Ceiling() * kBCBlockSize;
+			bool rgbTileScaleNeeded = (rgbRasterOut != null && rgbScaleToEvenBCBlockSize && (rgbRgnTileSize != bcRgnTileSize));
 
 			HeightRaster hmTileRaster = new HeightRaster();
 			ColorRaster rgbTileRaster = new ColorRaster();
@@ -260,15 +311,15 @@ namespace GeoTiff2Unity {
 
 			if (rgbRasterOut != null) {
 				Util.Log("\n[{0}-{1}] Writing {2} grid of {3} sized RGB tiles matching {4} sized height tiles for region sized {5}",
-					recursionDepth, regionId, hmRgnGridSize, rgbRgnTileSizePix, hmRgnTileSize, hmRgnSize);
-				rgbTileRaster.Init(rgbRgnTileSizePix);
+					recursionDepth, regionId, hmRgnGridSize, rgbRgnTileSize, hmRgnTileSize, hmRgnSize);
+				rgbTileRaster.Init(rgbRgnTileSize);
 			}
 
 			if (rgbTileScaleNeeded) {
 				Util.Log("  [{0}-{1}] RGB tiles will be scaled to {2}, multiple of {3} for compatibility with block compression algorithms.",
 					recursionDepth,
 					regionId,
-					bcRgnTileSizePix,
+					bcRgnTileSize,
 					kBCBlockSize);
 			}
 
@@ -304,10 +355,15 @@ namespace GeoTiff2Unity {
 						var rgbTileOrigin = (hmTileOrigin * hmToRGBPixScale).Floor();
 						rgbRasterOut.GetRect(rgbTileRaster, rgbTileOrigin);
 
+#if DEBUG_RECURSION_COVERAGE
+						rgbRasterOut.Clear(ColorU8.white, rgbTileOrigin, rgbRgnTileSize);
+						rgbRasterOut.Clear(ColorU8.black, rgbTileOrigin + (VectorD2)2, rgbRgnTileSize - (VectorD2)4);
+#endif
+
 						string rgbTileOutPath = genRGBTiffOutPath(regionId, hmTileCoords, rgbTileRaster);
 
 						if (rgbTileScaleNeeded) {
-							writeRGBTiffOut(rgbTileOutPath, rgbTileRaster.Scaled(bcRgnTileSizePix), rgbHeader.orientation);
+							writeRGBTiffOut(rgbTileOutPath, rgbTileRaster.Scaled(bcRgnTileSize), rgbHeader.orientation);
 						} else {
 							writeRGBTiffOut(rgbTileOutPath, rgbTileRaster, rgbHeader.orientation);
 						}
@@ -689,6 +745,35 @@ namespace GeoTiff2Unity {
 		public double minSampleValue = 0;
 		public double maxSampleValue = 0;
 		public int noSampleValue = 0;
+
+		public void Rotate(RasterRotation rotation) {
+			if ( rotation == RasterRotation.None ) {
+				return;
+			}
+
+			if (rotation != RasterRotation.CCW_180) {
+				sizePix = sizePix.yx;
+				pixToProjScale = pixToProjScale.yxz;
+			}
+
+			if (tiePoints?.Length > 0) {
+				if ( tiePoints.Length > 1 ) {
+					Util.Warn("GeoTiffHeader.Rotate only modifying TiePoint[0]. {1} TiePoint(s) not changed.", tiePoints.Length - 1);
+				}
+
+				switch (rotation) {
+				case RasterRotation.CCW_90:
+					tiePoints[0].rasterPt = new VectorD3 { x = 0, y = sizePix.y - 1, z = tiePoints[0].rasterPt.z };
+					break;
+				case RasterRotation.CCW_180:
+					tiePoints[0].rasterPt = new VectorD3 { x = sizePix.x - 1, y = sizePix.y - 1, z = tiePoints[0].rasterPt.z };
+					break;
+				case RasterRotation.CCW_270:
+					tiePoints[0].rasterPt = new VectorD3 { x = sizePix.x - 1, y = 0, z = tiePoints[0].rasterPt.z };
+					break;
+				}
+			}
+		}
 	}
 
 	public static class IOUtil {

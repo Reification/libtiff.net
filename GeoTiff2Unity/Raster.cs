@@ -378,6 +378,8 @@ namespace GeoTiff2Unity {
 		}
 
 		public static readonly ColorF32 zero = new ColorF32 { r = 0, g = 0, b = 0 };
+		public static readonly ColorF32 black = zero;
+		public static readonly ColorF32 white = new ColorF32 { r = 1, g = 1, b = 1 };
 	}
 
 	public struct ColorU8 {
@@ -394,6 +396,8 @@ namespace GeoTiff2Unity {
 		}
 
 		public static readonly ColorU8 zero = new ColorU8 { r = 0, g = 0, b = 0 };
+		public static readonly ColorU8 black = zero;
+		public static readonly ColorU8 white = new ColorU8 { r = 0xff, g = 0xff, b = 0xff };
 	}
 
 	public struct ColorU16 {
@@ -421,6 +425,8 @@ namespace GeoTiff2Unity {
 		public void accum(ColorU8 c) { r += c.r; g += c.g; b += c.b; }
 
 		public static readonly ColorU16 zero = new ColorU16 { r = 0, g = 0, b = 0 };
+		public static readonly ColorU16 black = zero;
+		public static readonly ColorU16 white = new ColorU16 { r = 0xffff, g = 0xffff, b = 0xffff };
 	}
 
 	public static class RasterUtil {

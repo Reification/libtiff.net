@@ -39,7 +39,7 @@ namespace GeoTiff2Unity {
 					case "usage":
 						usage(null);
 						break;
-					case "rotateCCW":
+					case "rotateccw":
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}

@@ -29,6 +29,14 @@ namespace GeoTiff2Unity {
 		}
 
 
+		public VectorD2 xy {
+			get { return this; }
+		}
+
+		public VectorD2 yx {
+			get { return new VectorD2 { x = y, y = x }; }
+		}
+
 		public double Min() {
 			return Math.Min(x, y);
 		}
@@ -111,6 +119,14 @@ namespace GeoTiff2Unity {
 		public double width { get { return x; } }
 		public double height { get { return y; } }
 		public double depth { get { return z; } }
+
+		public VectorD3 xyz {
+			get { return this; }
+		}
+
+		public VectorD3 yxz {
+			get { return new VectorD3 { x = y, y = x, z = z }; }
+		}
 
 		public VectorD3 Abs() {
 			return new VectorD3 { x = Math.Abs(x), y = Math.Abs(y), z = Math.Abs(z) };
