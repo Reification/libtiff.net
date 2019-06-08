@@ -4,9 +4,12 @@ using System.Runtime.InteropServices;
 
 namespace GeoTiff2Unity {
 	public enum RasterRotation {
+		None,
+		CCW_0 = None,
 		CCW_90,
 		CCW_180,
 		CCW_270,
+		CW_0 = None,
 		CW_90 = CCW_270,
 		CW_180 = CCW_180,
 		CW_270 = CCW_90

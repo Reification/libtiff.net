@@ -5,9 +5,11 @@ namespace GeoTiff2Unity {
 	class Program {
 		static private string appName = "GeoTiff2Raw";
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<true|false>] <outputNameBase>",
+			appName + " <inputHeight.tif> <inputRGB.tif> [-rotateCCW=<90|180|270>] [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<true|false>] <outputNameBase>",
 			"  <inputHeight.tif>: source 32 bit float height map image",
 			"  <inputRGB.tif>: source RGB texture matching height map",
+			"  -rotateCCW=<90|180|270>: optional.",
+			"    rotate the source images before processing.",
 			"  -maxheighttex=<size_in_pix>: optional.",
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMaxHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
@@ -15,7 +17,7 @@ namespace GeoTiff2Unity {
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMinHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
 			"  -maxrgbtex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinRGBTexSize, Converter.kMaxRGBTexSize) + ". default is " + Converter.kMaxRGBTexSize + ".",
+			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxRGBTexSize) + ". default is " + Converter.kMaxRGBTexSize + ".",
 			"  -scalergbtoevenblocksize=<true|false>: optional.",
 			"    if true rgb tiles will be scaled up to next multiple of BC block size (4).",
 			"    default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize,
@@ -37,6 +39,14 @@ namespace GeoTiff2Unity {
 					case "usage":
 						usage(null);
 						break;
+					case "rotateCCW":
+						if (nameValPair.Length != 2) {
+							usage("option {0}: invalid format {1}", nameValPair[0], option);
+						}
+						if (!Enum.TryParse<RasterRotation>("CCW_" + nameValPair[1], out cnv.preRotation)) {
+							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
+						}
+						break;
 					case "maxheighttex":
 						if(nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
@@ -44,7 +54,7 @@ namespace GeoTiff2Unity {
 						if ( !uint.TryParse(nameValPair[1], out cnv.hmOutMaxTexSize) || 
 									cnv.hmOutMaxTexSize < Converter.kMinHeightTexSize ||
 									cnv.hmOutMaxTexSize > Converter.kMaxHeightTexSize ||
-									((cnv.hmOutMaxTexSize - 1) & (cnv.hmOutMaxTexSize - 2)) != 0)
+									!Converter.IsValidHeightMapSize(cnv.hmOutMaxTexSize)) 
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
 						}
@@ -56,7 +66,8 @@ namespace GeoTiff2Unity {
 						if (!uint.TryParse(nameValPair[1], out cnv.hmOutMinTexSize) ||
 									cnv.hmOutMinTexSize < Converter.kMinHeightTexSize ||
 									cnv.hmOutMinTexSize > Converter.kMaxHeightTexSize ||
-									((cnv.hmOutMinTexSize - 1) & (cnv.hmOutMinTexSize - 2)) != 0) {
+									!Converter.IsValidHeightMapSize(cnv.hmOutMinTexSize)) 
+						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
@@ -65,7 +76,7 @@ namespace GeoTiff2Unity {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
 						if ( !uint.TryParse(nameValPair[1], out cnv.rgbOutMaxTexSize) || 
-									cnv.rgbOutMaxTexSize < Converter.kMinRGBTexSize ||
+									cnv.rgbOutMaxTexSize < Converter.kMinMaxRGBTexSize ||
 									cnv.rgbOutMaxTexSize > Converter.kMaxRGBTexSize )
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );

@@ -1,7 +1,7 @@
 ﻿// normally only raw format height tiles are saved.
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
-#define SAVE_TIFF_HEIGHT_TILES
+//#define SAVE_TIFF_HEIGHT_TILES
 #define DEBUG_RECURSION_COVERAGE
 
 using System;
@@ -27,12 +27,14 @@ namespace GeoTiff2Unity {
 		public const uint kMaxUnityTexSize = 8 * 1024;
 		public const uint kBCBlockSize = 4;
 
-		public const uint kMinRGBTexSize = 512;
+		public const uint kMinMaxRGBTexSize = 512;
 		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
 		public const bool kDefaultRGBScaleToEvenBCBlockSize = true;
 
-		public const uint kMinHeightTexSize = 33; //65;
+		public const uint kMinHeightTexSize = 33;
 		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
+
+		public RasterRotation preRotation = RasterRotation.None;
 
 		public string hmTiffInPath = null;
 		public string rgbTiffInPath = null;
@@ -42,6 +44,11 @@ namespace GeoTiff2Unity {
 		public uint hmOutMinTexSize = kMinHeightTexSize;
 		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
 		public bool rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
+
+		public static bool IsValidHeightMapSize(uint sz) {
+			uint potCheck = sz - 1;
+			return (potCheck & (potCheck - 1)) == 0u;
+		}
 
 		public bool Go() {
 			// we just want to catch exception in the debugger.
@@ -156,7 +163,6 @@ namespace GeoTiff2Unity {
 			/// HACK!
 			rgbHeader.pixToProjScale = (VectorD2)((VectorD2)(rgbHeader.pixToProjScale)).Max();
 
-
 			// we're going with the notion that the height and rgb maps line up.
 			//hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
 			hmToRGBPixScale = rgbHeader.sizePix / hmHeader.sizePix;
@@ -168,7 +174,7 @@ namespace GeoTiff2Unity {
 			VectorD2 rgbOutTileSizePix = hmOutTileSizePix * hmToRGBPixScale;
 
 			while (rgbOutTileSizePix.Max() > rgbOutMaxTexSize) {
-				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 2);
+				hmOutTileSizePix = (VectorD2)calcHeightMapSizeLTE(hmOutTileSizePix.x - 1);
 				rgbOutTileSizePix = (hmOutTileSizePix * hmToRGBPixScale).Floor();
 			}
 		}
@@ -202,7 +208,7 @@ namespace GeoTiff2Unity {
 			}
 
 			Util.Log("");
-			generateTiles(0, hmRasterOut, null, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+			generateTiles(0, (VectorD2)0, hmRasterOut, null, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 
 #if DEBUG_RECURSION_COVERAGE
 		writeRGBTiffOut(Path.GetDirectoryName(outPathBase) + "/hmCoverage.tif", hmRasterOut);
@@ -216,18 +222,18 @@ namespace GeoTiff2Unity {
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRaster);
 
 			Util.Log("");
-			generateTiles(0, null, rgbRaster, (VectorD2)0, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
+			generateTiles(0, (VectorD2)0, null, rgbRaster, (VectorD2)0, hmHeader.sizePix, hmOutTileSizePix);
 		}
 
-		void generateTiles(uint recursionDepth, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 regionId, VectorD2 hmRgnOrigin, VectorD2 hmRgnSize, VectorD2 hmRgnTileSize) {
+		void generateTiles(uint recursionDepth, VectorD2 regionId, HeightRaster hmRasterOut, ColorRaster rgbRasterOut, VectorD2 hmRgnOrigin, VectorD2 hmRgnSize, VectorD2 hmRgnTileSize) {
 			if (regionIdSet.Contains(regionId)) {
-				Util.Error("[{0}] regionId collision! {1} already used", recursionDepth, regionId);
+				Util.Error("[{0}{1}] RegionId collision!", recursionDepth, regionId);
 			}
 
 			regionIdSet.Add(regionId);
 
 			if (hmRgnTileSize.Min() < hmOutMinTexSize) {
-				Util.Log("\n[{0}] Skipping region {1}, size {2}, height tile size {3} below min height tile size {4}",
+				Util.Log("\n[{0}-{1}] Skipping region size {2}, height tile size {3} below min height tile size {4}",
 					recursionDepth, regionId, hmRgnSize, hmRgnTileSize, hmOutMinTexSize);
 				return;
 			}
@@ -247,20 +253,21 @@ namespace GeoTiff2Unity {
 			}
 
 			if (hmRasterOut != null) {
-				Util.Log("\n[{0}] Writing {1} grid of {2} sized {3} height tiles for region {4}, sized {5}", 
-					recursionDepth, hmRgnGridSize, hmRgnTileSize, HeightRaster.pixelTypeName, regionId, hmRgnSize);
+				Util.Log("\n[{0}-{1}] Writing {2} grid of {3} sized {4} height tiles for region sized {5}", 
+					recursionDepth, regionId, hmRgnGridSize, hmRgnTileSize, HeightRaster.pixelTypeName, hmRgnSize);
 				hmTileRaster.Init(hmRgnTileSize);
 			}
 
 			if (rgbRasterOut != null) {
-				Util.Log("\n[{0}] Writing {1} grid of {2} sized RGB tiles matching {3} sized height tiles for region {4}, sized {5}", 
-					recursionDepth, hmRgnGridSize, rgbRgnTileSizePix, hmRgnTileSize, regionId, hmRgnSize);
+				Util.Log("\n[{0}-{1}] Writing {2} grid of {3} sized RGB tiles matching {4} sized height tiles for region sized {5}",
+					recursionDepth, regionId, hmRgnGridSize, rgbRgnTileSizePix, hmRgnTileSize, hmRgnSize);
 				rgbTileRaster.Init(rgbRgnTileSizePix);
 			}
 
 			if (rgbTileScaleNeeded) {
-				Util.Log("  [{0}] RGB tiles will be scaled to {1}, multiple of {2} for compatibility with block compression algorithms.",
+				Util.Log("  [{0}-{1}] RGB tiles will be scaled to {2}, multiple of {3} for compatibility with block compression algorithms.",
 					recursionDepth,
+					regionId,
 					bcRgnTileSizePix,
 					kBCBlockSize);
 			}
@@ -268,10 +275,11 @@ namespace GeoTiff2Unity {
 			VectorD2 hmTileCoords = 0;
 			VectorD2 hmTileOrigin = hmRgnOrigin;
 			VectorD2 hmRgnEnd = hmRgnOrigin + hmRgnSize;
+			VectorD2 hmCoveredRgnEnd = hmRgnOrigin + hmCoveredRgnSize;
 
-			for (; (hmTileOrigin.y + hmRgnTileSize.y) < hmRgnEnd.y; hmTileOrigin.y += hmRgnTileSize.y) {
+			for (; hmTileOrigin.y < hmCoveredRgnEnd.y; hmTileOrigin.y += hmRgnTileSize.y) {
 
-				for (hmTileOrigin.x = hmRgnOrigin.x; (hmTileOrigin.x + hmRgnTileSize.x) < hmRgnEnd.x; hmTileOrigin.x += hmRgnTileSize.x) {
+				for (hmTileOrigin.x = hmRgnOrigin.x; hmTileOrigin.x < hmCoveredRgnEnd.x; hmTileOrigin.x += hmRgnTileSize.x) {
 					if (hmRasterOut != null) {
 						hmRasterOut.GetRect(hmTileRaster, hmTileOrigin);
 
@@ -289,7 +297,7 @@ namespace GeoTiff2Unity {
 						}
 
 						writeRawTileOut(hmTileOutPath, hmTileRaster);
-						Util.Log("  [{0}] wrote height tile {1}", recursionDepth, Path.GetFileName(hmTileOutPath));
+						Util.Log("  [{0}-{1}] wrote height tile {2}", recursionDepth, regionId, Path.GetFileName(hmTileOutPath));
 					}
 
 					if (rgbRasterOut != null) {
@@ -304,7 +312,7 @@ namespace GeoTiff2Unity {
 							writeRGBTiffOut(rgbTileOutPath, rgbTileRaster, rgbHeader.orientation);
 						}
 
-						Util.Log("  [{0}] wrote rgb tile {1}", recursionDepth, Path.GetFileName(rgbTileOutPath));
+						Util.Log("  [{0}-{1}] wrote rgb tile {2}", recursionDepth, regionId, Path.GetFileName(rgbTileOutPath));
 					}
 
 					hmTileCoords.x++;
@@ -314,21 +322,10 @@ namespace GeoTiff2Unity {
 				hmTileCoords.y++;
 			}
 
-			VectorD2 hmCoveredRgnEnd = hmRgnOrigin + hmCoveredRgnSize;
-
-			// hmTileOrigin should have been iterated to be at bottom right corner of covered part of region.
-			if (hmTileOrigin != hmCoveredRgnEnd) {
-				Util.Error( "internal error: tile traversal fubar!" );
-			}
-
 			VectorD2 hmEdgeSizes = hmRgnSize - hmCoveredRgnSize;
 
-			if (hmEdgeSizes != (hmRgnEnd - hmCoveredRgnEnd)) {
-				Util.Error("internal error: tile arithmetic fubar!");
-			}
-
 			if (hmEdgeSizes == 0) {
-				Util.Log("  [{0}] Region {1} finished with an exact fit.", recursionDepth, regionId);
+				Util.Log("  [{0}-{1}] Region finished with an exact fit.", recursionDepth, regionId);
 				return;
 			}
 
@@ -347,25 +344,25 @@ namespace GeoTiff2Unity {
 					bottomEdgeSize = (hmRgnSize * VectorD2.v10) + (hmEdgeSizes * VectorD2.v01);
 				}
 
-				Util.Log("  [{0}] Region {1} finishged with pending edge region sizes right: {2}{3} bottom: {4}{5}", 
+				Util.Log("  [{0}-{1}] Region finishged with pending edge region sizes right: {2}{3} bottom: {4}{5}", 
 					recursionDepth, regionId, 
 					rightEdgeSize, cornerGoesToRightEdge ? "(incl. corner)" : "",
 					bottomEdgeSize, !cornerGoesToRightEdge ? "(incl. corner)" : "" );
 
-				uint idStepSize = (recursionDepth + 1);
+				uint idStepSize = (1u << (int)recursionDepth);
 
 				// recurse into right edge
 				generateTiles(	recursionDepth + 1,
-												hmRasterOut, rgbRasterOut,
 												regionId + (idStepSize * VectorD2.v10),
+												hmRasterOut, rgbRasterOut,
 												hmRgnOrigin + (hmCoveredRgnSize * VectorD2.v10), 
 												rightEdgeSize,
 												calcHeightMapSizeLTE(rightEdgeSize.Min()) );
 
 				// recurse into bottom edge
 				generateTiles(	recursionDepth + 1,
-												hmRasterOut, rgbRasterOut,
 												regionId + (idStepSize * VectorD2.v01),
+												hmRasterOut, rgbRasterOut,
 												hmRgnOrigin + (hmCoveredRgnSize * VectorD2.v01),
 												bottomEdgeSize, 
 												calcHeightMapSizeLTE(bottomEdgeSize.Min()) );
@@ -373,8 +370,15 @@ namespace GeoTiff2Unity {
 		}
 
 		static double calcHeightMapSizeLTE(double curSize) {
+			if (curSize <= 2) {
+				return 2;
+			}
 			// Unity height maps must be size 2^N + 1 
-			return Math.Pow(2.0, Math.Floor(Math.Log(curSize) / Math.Log(2.0))) + 1.0;
+			var lteSize = Math.Pow(2.0, Math.Floor(Math.Log(curSize - 1) / Math.Log(2.0))) + 1.0;
+			if (IsValidHeightMapSize((uint)curSize) && (lteSize != curSize)) {
+				Util.Error("internal error: hmSize {0} was valid, result should not be {1}", curSize, lteSize);
+			}
+			return lteSize;
 		}
 
 		GTHeightRaster processHeightMapData(GTHeightRaster hmRaster) {
