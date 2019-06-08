@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 using BitMiracle.LibTiff.Classic;
 
+using R9N;
+
 namespace GeoTiff2Unity {
 	public struct TiePoint {
 		public VectorD3 rasterPt;

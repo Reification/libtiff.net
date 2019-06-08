@@ -11,7 +11,8 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
-using System.Runtime.InteropServices;
+
+using R9N;
 
 namespace GeoTiff2Unity {
 	using GTHeightRaster = Raster<float>;
@@ -339,7 +340,7 @@ namespace GeoTiff2Unity {
 							hmTileRaster.YFlip();
 						}
 
-						writeRawTileOut(hmTileOutPath, hmTileRaster);
+						writeRawTileOut(hmTileOutPath, hmTileRaster, hmTileOrigin);
 						Util.Log("  [{0}-{1}] wrote height tile {2}", recursionDepth, regionId, Path.GetFileName(hmTileOutPath));
 					}
 
@@ -548,24 +549,14 @@ namespace GeoTiff2Unity {
 			tiff = null;
 		}
 
-		void writeRawTileOut<T>(string path, Raster<T> raster) where T : struct {
-			const uint kRowsPerStrip = 32;
-
-			using (var outRaw = new FileStream(path, FileMode.Create, FileAccess.Write)) {
-				HeightTileHeader hdr = new HeightTileHeader();
-				hdr.Init<T>(raster.width, (float)hmHeader.pixToProjScale.Max(), (float)hmHeader.minSampleValue, (float)hmHeader.maxSampleValue);
-				hdr.Write(outRaw);
-
-				byte[] tmpStrip = null;
-
-				for (uint y = 0, si = 0; y < raster.height; y += kRowsPerStrip, si++) {
-					uint stripRowCount = Math.Min(kRowsPerStrip, raster.height - y);
-
-					raster.GetRawRows(y, ref tmpStrip, stripRowCount);
-
-					outRaw.Write(tmpStrip, 0, (int)(stripRowCount * raster.pitch));
-				}
-			}
+		void writeRawTileOut<T>(string path, Raster<T> raster, VectorD2 tileOrigin) where T : struct {
+			var hdr = default(HeightTileHeader);
+			hdr.Init<T>(	raster.width, 
+										(uint)tileOrigin.x, (uint)tileOrigin.y,
+										(float)hmHeader.pixToProjScale.Max(), 
+										(float)hmHeader.minSampleValue,
+										(float)hmHeader.maxSampleValue);
+			HeightTile.Write(path, hdr, raster.pixels );
 		}
 
 		void writeRGBTiffOut<T>(string path, Raster<T> raster, Orientation orientation = Orientation.TOPLEFT) where T : struct {
@@ -660,72 +651,6 @@ namespace GeoTiff2Unity {
 		HashSet<VectorD2> regionIdSet = new HashSet<VectorD2>();
 	}
 
-	public static class RasterExt {
-		public static VectorD2 GetSizePix<T>(this Raster<T> r) where T : struct {
-			return new VectorD2 { x = r.width, y = r.height };
-		}
-
-		public static void Init<T>(this Raster<T> r, VectorD2 sizePix) where T : struct {
-			r.Init((uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static Raster<T> Clone<T>(this Raster<T> r, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			return r.Clone((uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void Clear<T>(this Raster<T> r, T clearVal, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			r.Clear(clearVal, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void GetRect<T>(this Raster<T> r, ref T[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			r.GetRect(ref rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void SetRect<T>(this Raster<T> r, T[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			r.SetRect(rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void GetRect<T>(this Raster<T> r, Raster<T> rect, VectorD2 origin) where T : struct {
-			r.GetRect(rect, (uint)origin.x, (uint)origin.y);
-		}
-
-		public static void SetRect<T>(this Raster<T> r, Raster<T> rect, VectorD2 origin) where T : struct {
-			r.SetRect(rect, (uint)origin.x, (uint)origin.y);
-		}
-
-		public static byte[] CloneRaw<T>(this Raster<T> r, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			return r.CloneRaw((uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void GetRawRect<T>(this Raster<T> r, ref byte[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			r.GetRawRect(ref rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static void SetRawRect<T>(this Raster<T> r, byte[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
-			r.SetRawRect(rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
-		}
-
-		public static Raster<float> Scaled(this Raster<float> src, VectorD2 sizePix) {
-			return src.Scaled((uint)sizePix.width, (uint)sizePix.width);
-		}
-
-		public static Raster<ColorF32> Scaled(this Raster<ColorF32> src, VectorD2 sizePix) {
-			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
-		}
-
-		public static Raster<ushort> Scaled(this Raster<ushort> src, VectorD2 sizePix) {
-			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
-		}
-
-		public static Raster<byte> Scaled(this Raster<byte> src, VectorD2 sizePix) {
-			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
-		}
-
-		public static Raster<ColorU8> Scaled(this Raster<ColorU8> src, VectorD2 sizePix) {
-			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
-		}
-	}
-
 	class GeoTiffHeader {
 		public VectorD2 sizePix = (VectorD2)0;
 		public int channelCount = 0;
@@ -767,130 +692,6 @@ namespace GeoTiff2Unity {
 					break;
 				}
 			}
-		}
-	}
-
-	public static class IOUtil {
-		public static byte[] StructToByteArray<T>(T source) where T : struct {
-			T[] sourceArray = new T[] { source };
-			GCHandle handle = GCHandle.Alloc(sourceArray, GCHandleType.Pinned);
-			try {
-				IntPtr pointer = handle.AddrOfPinnedObject();
-				byte[] destination = new byte[Marshal.SizeOf(typeof(T))];
-				Marshal.Copy(pointer, destination, 0, destination.Length);
-				return destination;
-			} finally {
-				if (handle.IsAllocated)
-					handle.Free();
-			}
-		}
-
-		public static T ByteArrayToStruct<T>(byte[] source) where T : struct {
-			T[] destination = new T[1];
-			GCHandle handle = GCHandle.Alloc(destination, GCHandleType.Pinned);
-			try {
-				IntPtr pointer = handle.AddrOfPinnedObject();
-				Marshal.Copy(source, 0, pointer, source.Length);
-				return destination[0];
-			} finally {
-				if (handle.IsAllocated)
-					handle.Free();
-			}
-		}
-	}
-
-	public struct HeightTileHeader {
-		public static readonly uint kMagic = ((uint)Char.GetNumericValue('r') << 24) +
-																					((uint)Char.GetNumericValue('9') << 16) +
-																					((uint)Char.GetNumericValue('n') << 8) +
-																					(uint)Char.GetNumericValue('h');
-		public uint magic;
-		public uint tileSizePix;
-		public uint bytesPerSample;
-		public uint isFloat;
-		public float pixToMeters;
-		public float minTotalTerrainHeight;
-		public float maxTotalTerrainHeight;
-
-		public void Init<T>(uint wh, float pixSize, float minV, float maxV) where T : struct {
-			magic = kMagic;
-			tileSizePix = wh;
-			bytesPerSample = (uint)Marshal.SizeOf(typeof(T));
-			isFloat = ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double))) ? 1u : 0u;
-			pixToMeters = pixSize;
-			minTotalTerrainHeight = minV;
-			maxTotalTerrainHeight = maxV;
-		}
-
-		public void Validate() {
-			if (magic != kMagic) {
-				throw new Exception(string.Format("incorrect magic number {0} expected {1}", magic, kMagic));
-			}
-
-			if (((tileSizePix - 1) & (tileSizePix - 2)) != 0) {
-				throw new Exception(string.Format("Height map size {0} is invalid. Must be 2^N + 1.", tileSizePix));
-			}
-
-			if (isFloat > 1) {
-				throw new Exception(string.Format("Invalid value for isFloat {0}. Must be 0 or 1.", isFloat));
-			}
-
-			if ((isFloat != 0) && (bytesPerSample != 4u)) {
-				throw new Exception(string.Format("Invalid bytes per sample {0} for sample type float. Must be 4.", bytesPerSample));
-			}
-
-			if ((isFloat == 0) && (bytesPerSample != 1u) && (bytesPerSample != 2u)) {
-				throw new Exception(string.Format("Invalid bytes per sample {0} for sample type uint. Must be 1 or 2.", bytesPerSample));
-			}
-
-			if (pixToMeters <= 0.0f) {
-				throw new Exception(string.Format("Invalid pixel to meters scale {0}. Must be > 0", pixToMeters));
-			}
-
-			if (minTotalTerrainHeight < 0.0f || maxTotalTerrainHeight < minTotalTerrainHeight) {
-				throw new Exception(string.Format("Invalid min/max total terrain heights {0}/{1}. Must be >= 0 and max must be >= min.", minTotalTerrainHeight, maxTotalTerrainHeight));
-			}
-		}
-
-		public void ValidateCompatible(HeightTileHeader expected) {
-			if (bytesPerSample != expected.bytesPerSample) {
-				throw new Exception(string.Format("bytesPerSample {0} does not match expected {1}", bytesPerSample, expected.bytesPerSample));
-			}
-
-			if (isFloat != expected.isFloat) {
-				throw new Exception(string.Format("isFloat {0} does not match expected {1}", isFloat, expected.isFloat));
-			}
-
-			if (pixToMeters != expected.pixToMeters) {
-				throw new Exception(string.Format("pixSizeM {0} does not match expected {1}", isFloat, expected.isFloat));
-			}
-
-			if (minTotalTerrainHeight != expected.minTotalTerrainHeight || maxTotalTerrainHeight != expected.maxTotalTerrainHeight) {
-				throw new Exception(string.Format("min/max total terrain heights {0}/{1} do not match expected {2}/{3}",
-					minTotalTerrainHeight, maxTotalTerrainHeight, expected.minTotalTerrainHeight, expected.maxTotalTerrainHeight));
-			}
-		}
-
-		public void ValidateExactMatch(HeightTileHeader expected) {
-			ValidateCompatible(expected);
-			if (tileSizePix != expected.tileSizePix) {
-				throw new Exception(string.Format("tileSizePix {0} does not match expected tileSizePix {1}", tileSizePix, expected.tileSizePix));
-			}
-		}
-
-		public static HeightTileHeader Read(FileStream inFile) {
-			var thisBytes = new byte[Marshal.SizeOf(typeof(HeightTileHeader))];
-			inFile.Read(thisBytes, 0, thisBytes.Length);
-			HeightTileHeader hdr = IOUtil.ByteArrayToStruct<HeightTileHeader>(thisBytes);
-
-			hdr.Validate();
-
-			return hdr;
-		}
-
-		public void Write(FileStream outFile) {
-			var thisBytes = IOUtil.StructToByteArray(this);
-			outFile.Write(thisBytes, 0, thisBytes.Length);
 		}
 	}
 }

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace GeoTiff2Unity {
+namespace R9N {
 	public struct VectorD2 {
 		public double x;
 		public double y;

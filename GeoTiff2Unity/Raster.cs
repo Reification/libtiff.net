@@ -1,8 +1,9 @@
-﻿using System;
+﻿#define USE_R9N_VECTOR
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace GeoTiff2Unity {
+namespace R9N {
 	public enum RasterRotation {
 		None,
 		CCW_0 = None,
@@ -13,6 +14,79 @@ namespace GeoTiff2Unity {
 		CW_90 = CCW_270,
 		CW_180 = CCW_180,
 		CW_270 = CCW_90
+	}
+
+	public struct ColorF32 {
+		public float r;
+		public float g;
+		public float b;
+
+		public ColorU8 ToColorU8(float translation = 0.0f, float scale = byte.MaxValue) {
+			return new ColorU8 {
+				r = (byte)((r + translation) * scale),
+				g = (byte)((g + translation) * scale),
+				b = (byte)((b + translation) * scale)
+			};
+		}
+
+		public ColorU16 ToColorU16(float translation = 0.0f, float scale = ushort.MaxValue) {
+			return new ColorU16 {
+				r = (ushort)((r + translation) * scale),
+				g = (ushort)((g + translation) * scale),
+				b = (ushort)((b + translation) * scale)
+			};
+		}
+
+		public static readonly ColorF32 zero = new ColorF32 { r = 0, g = 0, b = 0 };
+		public static readonly ColorF32 black = zero;
+		public static readonly ColorF32 white = new ColorF32 { r = 1, g = 1, b = 1 };
+	}
+
+	public struct ColorU8 {
+		public byte r;
+		public byte g;
+		public byte b;
+
+		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
+			return new ColorF32 {
+				r = (r + translation) * scale,
+				g = (g + translation) * scale,
+				b = (b + translation) * scale
+			};
+		}
+
+		public static readonly ColorU8 zero = new ColorU8 { r = 0, g = 0, b = 0 };
+		public static readonly ColorU8 black = zero;
+		public static readonly ColorU8 white = new ColorU8 { r = 0xff, g = 0xff, b = 0xff };
+	}
+
+	public struct ColorU16 {
+		public ushort r;
+		public ushort g;
+		public ushort b;
+
+		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / ushort.MaxValue) {
+			return new ColorF32 {
+				r = (r + translation) * scale,
+				g = (g + translation) * scale,
+				b = (b + translation) * scale
+			};
+		}
+
+		public ColorU8 ToColorU8() {
+			return new ColorU8 {
+				r = (byte)(r >> 8),
+				g = (byte)(g >> 8),
+				b = (byte)(b >> 8)
+			};
+		}
+
+		public ColorU8 divBy4U8() { return new ColorU8 { r = (byte)(r >> 2), g = (byte)(g >> 2), b = (byte)(b >> 2) }; }
+		public void accum(ColorU8 c) { r += c.r; g += c.g; b += c.b; }
+
+		public static readonly ColorU16 zero = new ColorU16 { r = 0, g = 0, b = 0 };
+		public static readonly ColorU16 black = zero;
+		public static readonly ColorU16 white = new ColorU16 { r = 0xffff, g = 0xffff, b = 0xffff };
 	}
 
 	public class Raster<T> where T : struct {
@@ -177,7 +251,7 @@ namespace GeoTiff2Unity {
 			if (typeof(T).IsPrimitive) {
 				Buffer.BlockCopy(pixels, 0, rasterBytes, 0, rasterBytes.Length);
 			} else {
-				RasterUtil.StructArrayToByteArray<T>(pixels, ref rasterBytes);
+				IOUtil.StructArrayToByteArray<T>(pixels, ref rasterBytes);
 			}
 
 			return rasterBytes;
@@ -199,7 +273,7 @@ namespace GeoTiff2Unity {
 			} else {
 				T[] trows = null;
 				GetRows(y, ref trows, rowCount);
-				rows = RasterUtil.StructArrayToByteArray(trows);
+				rows = IOUtil.StructArrayToByteArray(trows);
 			}
 		}
 
@@ -207,7 +281,7 @@ namespace GeoTiff2Unity {
 			if (typeof(T).IsPrimitive) {
 				Buffer.BlockCopy(rows, 0, pixels, (int)(y * pitch), (int)(pitch * rowCount));
 			} else {
-				SetRows(y, RasterUtil.ByteArrayToStructArray<T>(rows), rowCount);
+				SetRows(y, IOUtil.ByteArrayToStructArray<T>(rows), rowCount);
 			}
 		}
 
@@ -230,7 +304,7 @@ namespace GeoTiff2Unity {
 			} else {
 				T[] trect = null;
 				GetRect(ref trect, x, y, w, h);
-				RasterUtil.StructArrayToByteArray(trect, ref rect);
+				IOUtil.StructArrayToByteArray(trect, ref rect);
 			}
 		}
 
@@ -248,7 +322,7 @@ namespace GeoTiff2Unity {
 					dstR += pitch;
 				}
 			} else {
-				SetRect(RasterUtil.ByteArrayToStructArray<T>(rect), x, y, w, h);
+				SetRect(IOUtil.ByteArrayToStructArray<T>(rect), x, y, w, h);
 			}
 		}
 
@@ -356,122 +430,7 @@ namespace GeoTiff2Unity {
 		}
 	}
 
-	public struct ColorF32 {
-		public float r;
-		public float g;
-		public float b;
-
-		public ColorU8 ToColorU8(float translation = 0.0f, float scale = byte.MaxValue) {
-			return new ColorU8 {
-				r = (byte)((r + translation) * scale),
-				g = (byte)((g + translation) * scale),
-				b = (byte)((b + translation) * scale)
-			};
-		}
-
-		public ColorU16 ToColorU16(float translation = 0.0f, float scale = ushort.MaxValue) {
-			return new ColorU16 {
-				r = (ushort)((r + translation) * scale),
-				g = (ushort)((g + translation) * scale),
-				b = (ushort)((b + translation) * scale)
-			};
-		}
-
-		public static readonly ColorF32 zero = new ColorF32 { r = 0, g = 0, b = 0 };
-		public static readonly ColorF32 black = zero;
-		public static readonly ColorF32 white = new ColorF32 { r = 1, g = 1, b = 1 };
-	}
-
-	public struct ColorU8 {
-		public byte r;
-		public byte g;
-		public byte b;
-
-		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
-			return new ColorF32 {
-				r = (r + translation) * scale,
-				g = (g + translation) * scale,
-				b = (b + translation) * scale
-			};
-		}
-
-		public static readonly ColorU8 zero = new ColorU8 { r = 0, g = 0, b = 0 };
-		public static readonly ColorU8 black = zero;
-		public static readonly ColorU8 white = new ColorU8 { r = 0xff, g = 0xff, b = 0xff };
-	}
-
-	public struct ColorU16 {
-		public ushort r;
-		public ushort g;
-		public ushort b;
-
-		public ColorF32 ToColorF32(float translation = 0.0f, float scale = 1.0f / ushort.MaxValue) {
-			return new ColorF32 {
-				r = (r + translation) * scale,
-				g = (g + translation) * scale,
-				b = (b + translation) * scale
-			};
-		}
-
-		public ColorU8 ToColorU8() {
-			return new ColorU8 {
-				r = (byte)(r >> 8),
-				g = (byte)(g >> 8),
-				b = (byte)(b >> 8)
-			};
-		}
-
-		public ColorU8 divBy4U8() { return new ColorU8 { r = (byte)(r >> 2), g = (byte)(g >> 2), b = (byte)(b >> 2) }; }
-		public void accum(ColorU8 c) { r += c.r; g += c.g; b += c.b; }
-
-		public static readonly ColorU16 zero = new ColorU16 { r = 0, g = 0, b = 0 };
-		public static readonly ColorU16 black = zero;
-		public static readonly ColorU16 white = new ColorU16 { r = 0xffff, g = 0xffff, b = 0xffff };
-	}
-
-	public static class RasterUtil {
-		public static byte[] StructArrayToByteArray<T>(T[] source, ref byte[] destination) where T : struct {
-			GCHandle handle = GCHandle.Alloc(source, GCHandleType.Pinned);
-			try {
-				int byteCount = source.Length * Marshal.SizeOf(typeof(T));
-				IntPtr pointer = handle.AddrOfPinnedObject();
-				if ( !(destination?.Length >= byteCount) ) {
-					destination = new byte[byteCount];
-				}
-				Marshal.Copy(pointer, destination, 0, byteCount);
-				return destination;
-			} finally {
-				if (handle.IsAllocated)
-					handle.Free();
-			}
-		}
-
-		public static T[] ByteArrayToStructArray<T>(byte[] source, ref T[] destination) where T : struct {
-			int instanceCount = source.Length / Marshal.SizeOf(typeof(T));
-			if (!(destination?.Length >= instanceCount)) {
-				destination = new T[instanceCount];
-			}
-			GCHandle handle = GCHandle.Alloc(destination, GCHandleType.Pinned);
-			try {
-				IntPtr pointer = handle.AddrOfPinnedObject();
-				Marshal.Copy(source, 0, pointer, source.Length);
-				return destination;
-			} finally {
-				if (handle.IsAllocated)
-					handle.Free();
-			}
-		}
-
-		public static byte[] StructArrayToByteArray<T>(T[] source) where T : struct {
-			byte[] dst = null;
-			return StructArrayToByteArray(source, ref dst);
-		}
-
-		public static T[] ByteArrayToStructArray<T>(byte[] source) where T : struct {
-			T[] destination = null;
-			return ByteArrayToStructArray<T>(source, ref destination);
-		}
-
+	public static class RasterDetailExt {
 		public static Raster<float> Convert(this Raster<byte> src, Raster<float> dst, float translation = 0.0f, float scale = 1.0f / byte.MaxValue) {
 			dst.Init(src.width, src.height);
 			for (int i = 0; i < dst.pixels.Length; i++) {
@@ -898,4 +857,72 @@ namespace GeoTiff2Unity {
 			return dst;
 		}
 	}
+
+#if USE_R9N_VECTOR
+	public static class RasterVectorExt {
+		public static VectorD2 GetSizePix<T>(this Raster<T> r) where T : struct {
+			return new VectorD2 { x = r.width, y = r.height };
+		}
+
+		public static void Init<T>(this Raster<T> r, VectorD2 sizePix) where T : struct {
+			r.Init((uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static Raster<T> Clone<T>(this Raster<T> r, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			return r.Clone((uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void Clear<T>(this Raster<T> r, T clearVal, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			r.Clear(clearVal, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void GetRect<T>(this Raster<T> r, ref T[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			r.GetRect(ref rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void SetRect<T>(this Raster<T> r, T[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			r.SetRect(rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void GetRect<T>(this Raster<T> r, Raster<T> rect, VectorD2 origin) where T : struct {
+			r.GetRect(rect, (uint)origin.x, (uint)origin.y);
+		}
+
+		public static void SetRect<T>(this Raster<T> r, Raster<T> rect, VectorD2 origin) where T : struct {
+			r.SetRect(rect, (uint)origin.x, (uint)origin.y);
+		}
+
+		public static byte[] CloneRaw<T>(this Raster<T> r, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			return r.CloneRaw((uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void GetRawRect<T>(this Raster<T> r, ref byte[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			r.GetRawRect(ref rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static void SetRawRect<T>(this Raster<T> r, byte[] rect, VectorD2 origin, VectorD2 sizePix) where T : struct {
+			r.SetRawRect(rect, (uint)origin.x, (uint)origin.y, (uint)sizePix.width, (uint)sizePix.height);
+		}
+
+		public static Raster<float> Scaled(this Raster<float> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.width, (uint)sizePix.width);
+		}
+
+		public static Raster<ColorF32> Scaled(this Raster<ColorF32> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+
+		public static Raster<ushort> Scaled(this Raster<ushort> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+
+		public static Raster<byte> Scaled(this Raster<byte> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+
+		public static Raster<ColorU8> Scaled(this Raster<ColorU8> src, VectorD2 sizePix) {
+			return src.Scaled((uint)sizePix.x, (uint)sizePix.y);
+		}
+	}
+#endif // USE_R9N_VECTOR
 }

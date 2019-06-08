@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
 
+using R9N;
+
 namespace GeoTiff2Unity {
 	class Program {
 		static private string appName = "GeoTiff2Raw";
