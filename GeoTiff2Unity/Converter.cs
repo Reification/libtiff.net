@@ -24,13 +24,13 @@ namespace GeoTiff2Unity {
 		public const uint kBCBlockSize = 4;
 
 		public const uint kMinMaxRGBTexSize = 512;
-		public const uint kMaxRGBTexSize = kMaxUnityTexSize;
+		public const uint kDefaultMaxRGBTexSize = kMaxUnityTexSize / 2;
 		public const int kDefaultRGBScaleToEvenBCBlockSize = 4;
 		public const int kMaxRGBScaleToEvenBCBlockSize = 6;
 
 		public const uint kMinHeightTexSize = 33;
 		public const uint kDefaultMinHeightTexSize = 65;
-		public const uint kMaxHeightTexSize = (4 * 1024) + 1;
+		public const uint kMaxHeightTexSize = (kMaxUnityTexSize / 2) + 1;
 
 		public RasterRotation preRotation = RasterRotation.None;
 
@@ -40,7 +40,7 @@ namespace GeoTiff2Unity {
 
 		public uint hmOutMaxTexSize = kMaxHeightTexSize;
 		public uint hmOutMinTexSize = kDefaultMinHeightTexSize;
-		public uint rgbOutMaxTexSize = kMaxRGBTexSize;
+		public uint rgbOutMaxTexSize = kDefaultMaxRGBTexSize;
 		public int rgbScaleToEvenBCBlockSize = kDefaultRGBScaleToEvenBCBlockSize;
 
 		public static bool IsValidHeightMapSize(uint sz) {
@@ -67,7 +67,7 @@ namespace GeoTiff2Unity {
 		void go() {
 			hmOutMinTexSize = Math.Max(hmOutMinTexSize, kMinHeightTexSize);
 			hmOutMaxTexSize = Math.Min(hmOutMaxTexSize, kMaxHeightTexSize);
-			rgbOutMaxTexSize = Math.Min(rgbOutMaxTexSize, kMaxRGBTexSize);
+			rgbOutMaxTexSize = Math.Min(rgbOutMaxTexSize, kMaxUnityTexSize);
 			rgbScaleToEvenBCBlockSize = Math.Min(rgbScaleToEvenBCBlockSize, kMaxRGBScaleToEvenBCBlockSize);
 			rgbScaleToEvenBCBlockSize = (rgbScaleToEvenBCBlockSize < 0) ? 1 : (int)(kBCBlockSize * (1 << rgbScaleToEvenBCBlockSize));
 

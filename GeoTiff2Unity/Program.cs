@@ -19,7 +19,7 @@ namespace GeoTiff2Unity {
 			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kDefaultMinHeightTexSize + ".",
 			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
 			"  -maxrgbtex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxRGBTexSize) + ". default is " + Converter.kMaxRGBTexSize + ".",
+			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxUnityTexSize) + ". default is " + Converter.kDefaultMaxRGBTexSize + ".",
 			"  -scalergbtoevenblocksize=<miplevel>: optional.",
 			"    if >= 0 rgb tiles will be scaled up to next multiple of BC block size (4 * (2^<mipLevel>)) to support compression to <miplevel>.",
 			"    default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize  + ", max value is " + Converter.kMaxRGBScaleToEvenBCBlockSize,
@@ -80,7 +80,7 @@ namespace GeoTiff2Unity {
 						}
 						if ( !uint.TryParse(nameValPair[1], out cnv.rgbOutMaxTexSize) || 
 									cnv.rgbOutMaxTexSize < Converter.kMinMaxRGBTexSize ||
-									cnv.rgbOutMaxTexSize > Converter.kMaxRGBTexSize )
+									cnv.rgbOutMaxTexSize > Converter.kMaxUnityTexSize )
 						{
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
 						}
