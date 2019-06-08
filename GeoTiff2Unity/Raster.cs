@@ -9,11 +9,7 @@ namespace R9N {
 		CCW_0 = None,
 		CCW_90,
 		CCW_180,
-		CCW_270,
-		CW_0 = None,
-		CW_90 = CCW_270,
-		CW_180 = CCW_180,
-		CW_270 = CCW_90
+		CCW_270
 	}
 
 	public struct ColorF32 {
@@ -352,7 +348,7 @@ namespace R9N {
 			case RasterRotation.CCW_90:
 				rotate90(true);
 				break;
-			case RasterRotation.CW_90:
+			case RasterRotation.CCW_270:
 				rotate90(false);
 				break;
 			case RasterRotation.CCW_180:

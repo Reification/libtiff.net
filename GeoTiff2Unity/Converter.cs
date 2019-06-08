@@ -166,6 +166,10 @@ namespace GeoTiff2Unity {
 			// we're going with the notion that the height and rgb maps line up.
 			//hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
 			hmToRGBPixScale = rgbHeader.sizePix / hmHeader.sizePix;
+
+			if (preRotation != RasterRotation.None) {
+				Util.Log("\nSource images will be rotated {0} before processing.", preRotation);
+			}
 		}
 
 		void computePrimaryTileSizes() {
