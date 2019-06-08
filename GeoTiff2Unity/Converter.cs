@@ -13,14 +13,6 @@ using System.Collections.Generic;
 using BitMiracle.LibTiff.Classic;
 using System.Runtime.InteropServices;
 
-//
-// TODO: instead of resizing and just cutting off one piece
-// break into multiple squares that suit unity requirements.
-// number as grid. each raw height map should be 2^N+1 square with size in name on output
-// grid number should also be in output name
-// same for RGB tifs out - size not needed, grid coords yes.
-//
-
 namespace GeoTiff2Unity {
 	using GTHeightRaster = Raster<float>;
 	using HeightRaster = Raster<ushort>;
@@ -557,39 +549,40 @@ namespace GeoTiff2Unity {
 		}
 
 		void writeRawTileOut<T>(string path, Raster<T> raster) where T : struct {
-			using (var outFile = new FileStream(path, FileMode.Create, FileAccess.Write)) {
+			const uint kRowsPerStrip = 32;
+
+			using (var outRaw = new FileStream(path, FileMode.Create, FileAccess.Write)) {
 				HeightTileHeader hdr = new HeightTileHeader();
 				hdr.Init<T>(raster.width, (float)hmHeader.pixToProjScale.Max(), (float)hmHeader.minSampleValue, (float)hmHeader.maxSampleValue);
-				hdr.Write(outFile);
-
-				const uint kRowsPerStrip = 32;
+				hdr.Write(outRaw);
 
 				byte[] tmpStrip = null;
+
 				for (uint y = 0, si = 0; y < raster.height; y += kRowsPerStrip, si++) {
 					uint stripRowCount = Math.Min(kRowsPerStrip, raster.height - y);
 
 					raster.GetRawRows(y, ref tmpStrip, stripRowCount);
-					outFile.Write(tmpStrip, 0, (int)(stripRowCount * raster.pitch));
+
+					outRaw.Write(tmpStrip, 0, (int)(stripRowCount * raster.pitch));
 				}
 			}
 		}
 
 		void writeRGBTiffOut<T>(string path, Raster<T> raster, Orientation orientation = Orientation.TOPLEFT) where T : struct {
-			using (Tiff outRGB = Tiff.Open(path, "w")) {
-				outRGB.SetField(TiffTag.IMAGEWIDTH, (int)raster.width);
-				outRGB.SetField(TiffTag.IMAGELENGTH, (int)raster.height);
-				outRGB.SetField(TiffTag.SAMPLESPERPIXEL, (int)raster.getChannelCount());
-				outRGB.SetField(TiffTag.BITSPERSAMPLE, (int)raster.getBitsPerChannel());
-				outRGB.SetField(TiffTag.SAMPLEFORMAT, raster.getChannelTypeName().StartsWith("float") ? SampleFormat.IEEEFP : SampleFormat.UINT);
-				outRGB.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
-				outRGB.SetField(TiffTag.ORIENTATION, orientation);
-				outRGB.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
-				outRGB.SetField(TiffTag.COMPRESSION, Compression.LZW);
-				outRGB.SetField(TiffTag.PREDICTOR, Predictor.HORIZONTAL);
+			const uint kRowsPerStrip = 32;
 
-				const uint kRowsPerStrip = 32;
-
-				outRGB.SetField(TiffTag.ROWSPERSTRIP, (int)kRowsPerStrip);
+			using (Tiff outTif = Tiff.Open(path, "w")) {
+				outTif.SetField(TiffTag.IMAGEWIDTH, (int)raster.width);
+				outTif.SetField(TiffTag.IMAGELENGTH, (int)raster.height);
+				outTif.SetField(TiffTag.SAMPLESPERPIXEL, (int)Raster<T>.channelCount);
+				outTif.SetField(TiffTag.BITSPERSAMPLE, (int)Raster<T>.bitsPerChannel);
+				outTif.SetField(TiffTag.SAMPLEFORMAT, Raster<T>.channelTypeName.StartsWith("float") ? SampleFormat.IEEEFP : SampleFormat.UINT);
+				outTif.SetField(TiffTag.PHOTOMETRIC, Photometric.RGB);
+				outTif.SetField(TiffTag.ORIENTATION, orientation);
+				outTif.SetField(TiffTag.PLANARCONFIG, PlanarConfig.CONTIG);
+				outTif.SetField(TiffTag.COMPRESSION, Compression.LZW);
+				outTif.SetField(TiffTag.PREDICTOR, Predictor.HORIZONTAL);
+				outTif.SetField(TiffTag.ROWSPERSTRIP, (int)kRowsPerStrip);
 
 				byte[] tmpStrip = null;
 
@@ -597,7 +590,8 @@ namespace GeoTiff2Unity {
 					uint stripRowCount = Math.Min(kRowsPerStrip, raster.height - y);
 
 					raster.GetRawRows(y, ref tmpStrip, stripRowCount);
-					outRGB.WriteEncodedStrip((int)si, tmpStrip, (int)(stripRowCount * raster.pitch));
+
+					outTif.WriteEncodedStrip((int)si, tmpStrip, (int)(stripRowCount * raster.pitch));
 				}
 			}
 		}

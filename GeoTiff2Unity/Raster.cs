@@ -438,7 +438,7 @@ namespace GeoTiff2Unity {
 				if ( !(destination?.Length >= byteCount) ) {
 					destination = new byte[byteCount];
 				}
-				Marshal.Copy(pointer, destination, 0, source.Length);
+				Marshal.Copy(pointer, destination, 0, byteCount);
 				return destination;
 			} finally {
 				if (handle.IsAllocated)
