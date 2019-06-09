@@ -64,6 +64,12 @@ namespace GeoTiff2Unity {
 #endif
 		}
 
+		class RGBTileInfo {
+			public VectorD2 rgbTileOrigin = 0;
+			public VectorD2 rgbTileSize = 0;
+			public string rgbOutPath = null;
+		}
+
 		void go() {
 			hmOutMinTexSize = Math.Max(hmOutMinTexSize, kMinHeightTexSize);
 			hmOutMaxTexSize = Math.Min(hmOutMaxTexSize, kMaxHeightTexSize);
@@ -353,7 +359,7 @@ namespace GeoTiff2Unity {
 						hmRasterOut.Clear(ushort.MinValue, hmTileOrigin + (VectorD2)2, hmRgnTileSize - (VectorD2)4);
 #endif
 
-						string hmTileOutPath = genHMRawOutPath(regionId, hmTileCoords, hmTileRaster);
+						string hmTileOutPath = genHMRawOutPath(regionId, hmTileCoords);
 #if SAVE_TIFF_HEIGHT_TILES
 						writeRGBTiffOut(hmTileOutPath.Replace(".r9nh", ".tif"), hmTileRaster);
 #endif
@@ -374,7 +380,7 @@ namespace GeoTiff2Unity {
 						rgbRasterOut.Clear(ColorU8.black, rgbTileOrigin + (VectorD2)2, rgbRgnTileSize - (VectorD2)4);
 #endif
 
-						string rgbTileOutPath = genRGBTiffOutPath(regionId, hmTileCoords, rgbTileRaster);
+						string rgbTileOutPath = genRGBTiffOutPath(regionId, hmTileCoords);
 
 						if (rgbTileScaleNeeded) {
 							writeRGBTiffOut(rgbTileOutPath, rgbTileRaster.Scaled(bcRgnTileSize), rgbHeader.orientation);
@@ -628,10 +634,10 @@ namespace GeoTiff2Unity {
 		static readonly string rgbOutPathFmt = "{0}/{1}_RGB_{2:x4}_{3:D3}-{4:D3}.tif";
 		static readonly string hmRawOutSubDirName = ".HeightMaps";
 
-		string genHMRawOutPath(ushort regionId, VectorD2 tilePos, HeightRaster hmRaster) {
+		string genHMRawOutPath(ushort regionId, VectorD2 tilePos) {
 			string outDir = Path.GetDirectoryName(outPathBase) + "/" + hmRawOutSubDirName;
 			string outNameBase = Path.GetFileName(outPathBase);
-			bool isFloat = (hmRaster.getChannelType() == typeof(float));
+			bool isFloat = (HeightRaster.channelType == typeof(float));
 
 			if (!Directory.Exists(outDir) ) {
 				Directory.CreateDirectory(outDir);
@@ -645,7 +651,7 @@ namespace GeoTiff2Unity {
 			return path;
 		}
 
-		string genRGBTiffOutPath(ushort regionId, VectorD2 tilePos, ColorRaster rgbRaster) {
+		string genRGBTiffOutPath(ushort regionId, VectorD2 tilePos) {
 			string outDir = Path.GetDirectoryName(outPathBase);
 			string outNameBase = Path.GetFileName(outPathBase);
 			string path = string.Format(rgbOutPathFmt,
@@ -666,6 +672,7 @@ namespace GeoTiff2Unity {
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
 		VectorD2 hmRegion0TileSize = (VectorD2)0;
 		HashSet<ushort> regionIdSet = new HashSet<ushort>();
+		List<RGBTileInfo> pendingRGBTiles = new List<RGBTileInfo>();
 	}
 
 	class GeoTiffHeader {
