@@ -64,12 +64,6 @@ namespace GeoTiff2Unity {
 #endif
 		}
 
-		class RGBTileInfo {
-			public VectorD2 rgbTileOrigin = 0;
-			public VectorD2 rgbTileSize = 0;
-			public string rgbOutPath = null;
-		}
-
 		void go() {
 			hmOutMinTexSize = Math.Max(hmOutMinTexSize, kMinHeightTexSize);
 			hmOutMaxTexSize = Math.Min(hmOutMaxTexSize, kMaxHeightTexSize);
@@ -672,7 +666,6 @@ namespace GeoTiff2Unity {
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
 		VectorD2 hmRegion0TileSize = (VectorD2)0;
 		HashSet<ushort> regionIdSet = new HashSet<ushort>();
-		List<RGBTileInfo> pendingRGBTiles = new List<RGBTileInfo>();
 	}
 
 	class GeoTiffHeader {
