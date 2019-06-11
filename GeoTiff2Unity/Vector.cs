@@ -5,8 +5,8 @@ namespace R9N {
 		public double x;
 		public double y;
 
-		public double width { get { return x; } }
-		public double height { get { return y; } }
+		public double width { get { return x; } set { x = value; } }
+		public double height { get { return y; } set { y = value; } }
 		public double area {  get { return x * y; } }
 
 		public VectorD2 Abs() {

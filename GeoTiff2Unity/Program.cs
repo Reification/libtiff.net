@@ -5,27 +5,34 @@ using R9N;
 
 namespace GeoTiff2Unity {
 	class Program {
-		static private string appName = "GeoTiff2Raw";
+		static private string appName = "GeoTiff2Unity";
 		static private string[] usageText = {
-			appName + " <inputHeight.tif> <inputRGB.tif> [-rotateCCW=<90|180|270>] [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>] [-scalergbtoevenblocksize=<miplevel>] <outputNameBase>",
-			"  <inputHeight.tif>: source 32 bit float height map image",
-			"  <inputRGB.tif>: source RGB texture matching height map",
-			"  -rotateCCW=<90|180|270>: optional.",
-			"    rotate the source images before processing.",
-			"  -maxheighttex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMaxHeightTexSize + ".",
-			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
-			"  -minheighttex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kDefaultMinHeightTexSize + ".",
-			"    vaue must be (2^n + 1), e.g. 129, 257, etc.",
-			"  -maxrgbtex=<size_in_pix>: optional.",
-			"    value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxUnityTexSize) + ". default is " + Converter.kDefaultMaxRGBTexSize + ".",
-			"  -scalergbtoevenblocksize=<miplevel>: optional.",
-			"    if >= 0 rgb tiles will be scaled up to next multiple of BC block size (4 * (2^<mipLevel>)) to support compression to <miplevel>.",
-			"    default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize  + ", max value is " + Converter.kMaxRGBScaleToEvenBCBlockSize,
-			"    if -1 no size adjustment will be done.",
-			"    set to -1 if forcing PoT tex size in Unity.",
-			"  <outputNameBase>: base name for output height map and rgb assets.",
+			appName + "  <inputHeight.tif> <inputRGB.tif> <outputNameBase>",
+			"  [-maxheighttex=<size_in_pix>] [-minheighttex=<size_in_pix>] [-maxrgbtex=<size_in_pix>]",
+			"  [-scalergbtoevenblocksize=<miplevel>] [-important=<originX,originY,width,height>]",
+			"  [-rotateCCW=<90|180|270>]",
+			"    <inputHeight.tif>: source 32 bit float height map image",
+			"    <inputRGB.tif>: source RGB texture matching height map",
+			"    <outputNameBase>: base name for output height map and rgb assets.",
+			"    -maxheighttex=<size_in_pix>: optional.",
+			"      value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kMaxHeightTexSize + ".",
+			"      vaue must be (2^n + 1), e.g. 129, 257, etc.",
+			"    -minheighttex=<size_in_pix>: optional.",
+			"      value must be in range " + string.Format("[{0}, {1}]", Converter.kMinHeightTexSize, Converter.kMaxHeightTexSize) + ". default is " + Converter.kDefaultMinHeightTexSize + ".",
+			"      vaue must be (2^n + 1), e.g. 129, 257, etc.",
+			"    -maxrgbtex=<size_in_pix>: optional.",
+			"      value must be in range " + string.Format("[{0}, {1}]", Converter.kMinMaxRGBTexSize, Converter.kMaxUnityTexSize) + ". default is " + Converter.kDefaultMaxRGBTexSize + ".",
+			"    -scalergbtoevenblocksize=<miplevel>: optional.",
+			"      if >= 0 rgb tiles will be scaled up to next multiple of BC block size (4 * (2^<mipLevel>)) to support compression to <miplevel>.",
+			"      default value is " + Converter.kDefaultRGBScaleToEvenBCBlockSize  + ", max value is " + Converter.kMaxRGBScaleToEvenBCBlockSize,
+			"      if -1 no size adjustment will be done.",
+			"      set to -1 if forcing PoT tex size in Unity.",
+			"    -important=<originX,originY,width,height>: optional",
+			"      identifies area of importance.",
+			"      when computing tile fitting the area outside this region is considered expendable.",
+			"      default is 0,0,<image_w>,<image_h> (entire image)",
+			"    -rotateCCW=<90|180|270>: optional.",
+			"      rotate the source images before processing."
 		};
 
 		static void Main(string[] args) {
@@ -42,6 +49,25 @@ namespace GeoTiff2Unity {
 					case "usage":
 						usage(null);
 						break;
+					case "important":
+						if (nameValPair.Length != 2) {
+							usage("option {0}: invalid format {1}", nameValPair[0], option);
+						}
+						var coords = nameValPair[1].Split(',');
+						if (coords.Length != 4) {
+							usage("option {0}: invalid format (too few values) {1}", nameValPair[0], option);
+						}
+						int x = -1, y = -1, w = -1, h = -1;
+						int.TryParse(coords[0], out x);
+						int.TryParse(coords[1], out y);
+						int.TryParse(coords[2], out w);
+						int.TryParse(coords[3], out h);
+						if ( x < 0 || y < 0 || w <= 0 || h <= 0) {
+							usage("option {0}: infalid format (x, y must be >= 0, w, h must be > 0) {1}", nameValPair[0], option);
+						}
+						cnv.hmImportantOrigin = new VectorD2 { x = x, y = y };
+						cnv.hmImportantSize = new VectorD2 { width = w, height = h };
+						break;
 					case "rotateccw":
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
@@ -51,15 +77,14 @@ namespace GeoTiff2Unity {
 						}
 						break;
 					case "maxheighttex":
-						if(nameValPair.Length != 2) {
+						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !uint.TryParse(nameValPair[1], out cnv.hmOutMaxTexSize) || 
+						if (!uint.TryParse(nameValPair[1], out cnv.hmOutMaxTexSize) ||
 									cnv.hmOutMaxTexSize < Converter.kMinHeightTexSize ||
 									cnv.hmOutMaxTexSize > Converter.kMaxHeightTexSize ||
-									!Converter.IsValidHeightMapSize(cnv.hmOutMaxTexSize)) 
-						{
-							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
+									!Converter.IsValidHeightMapSize(cnv.hmOutMaxTexSize)) {
+							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
 					case "minheighttex":
@@ -69,8 +94,7 @@ namespace GeoTiff2Unity {
 						if (!uint.TryParse(nameValPair[1], out cnv.hmOutMinTexSize) ||
 									cnv.hmOutMinTexSize < Converter.kMinHeightTexSize ||
 									cnv.hmOutMinTexSize > Converter.kMaxHeightTexSize ||
-									!Converter.IsValidHeightMapSize(cnv.hmOutMinTexSize)) 
-						{
+									!Converter.IsValidHeightMapSize(cnv.hmOutMinTexSize)) {
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
@@ -78,19 +102,18 @@ namespace GeoTiff2Unity {
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !uint.TryParse(nameValPair[1], out cnv.rgbOutMaxTexSize) || 
+						if (!uint.TryParse(nameValPair[1], out cnv.rgbOutMaxTexSize) ||
 									cnv.rgbOutMaxTexSize < Converter.kMinMaxRGBTexSize ||
-									cnv.rgbOutMaxTexSize > Converter.kMaxUnityTexSize )
-						{
-							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1] );
+									cnv.rgbOutMaxTexSize > Converter.kMaxUnityTexSize) {
+							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
 					case "scalergbtoevenblocksize":
 						if (nameValPair.Length != 2) {
 							usage("option {0}: invalid format {1}", nameValPair[0], option);
 						}
-						if ( !int.TryParse(nameValPair[1], out cnv.rgbScaleToEvenBCBlockSize) ||
-							   cnv.rgbScaleToEvenBCBlockSize > Converter.kMaxRGBScaleToEvenBCBlockSize ) {
+						if (!int.TryParse(nameValPair[1], out cnv.rgbScaleToEvenBCBlockSize) ||
+								 cnv.rgbScaleToEvenBCBlockSize > Converter.kMaxRGBScaleToEvenBCBlockSize) {
 							usage("option {0}: invalid value {1}", nameValPair[0], nameValPair[1]);
 						}
 						break;
@@ -122,17 +145,16 @@ namespace GeoTiff2Unity {
 				}
 
 				if (cnv.outPathBase == null) {
-						cnv.outPathBase = arg;
-						continue;
+					cnv.outPathBase = arg;
+					continue;
 				}
 
 				usage("unexpected argument {0}", arg);
 			}
 
-			if (	cnv.hmTiffInPath == null ||
+			if (cnv.hmTiffInPath == null ||
 						cnv.rgbTiffInPath == null ||
-						cnv.outPathBase == null ) 
-			{
+						cnv.outPathBase == null) {
 				usage(args.Length > 0 ? "all inputs and outputs must be specified." : null);
 			}
 

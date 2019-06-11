@@ -1,7 +1,7 @@
 ﻿// normally only raw format height tiles are saved.
 // enable to save height tiles in tiff format as well.
 // useful for debugging height tile output. unity does not handle tiff for import.
-//#define SAVE_TIFF_HEIGHT_TILES
+#define SAVE_TIFF_HEIGHT_TILES
 // when enabled areas of source raster are cleared with white bordered black rectangles as they are covered.
 // uncovered areas are cleared to gray. the modified height & rgb maps are saved as tiffs in .HeightMaps/
 // along with the height map tiles.
@@ -32,6 +32,8 @@ namespace GeoTiff2Unity {
 		public const uint kDefaultMinHeightTexSize = 65;
 		public const uint kMaxHeightTexSize = (kMaxUnityTexSize / 2) + 1;
 
+		public VectorD2 hmImportantOrigin = (VectorD2)0.0;
+		public VectorD2 hmImportantSize = (VectorD2)(-1.0);
 		public RasterRotation preRotation = RasterRotation.None;
 
 		public string hmTiffInPath = null;
@@ -168,26 +170,57 @@ namespace GeoTiff2Unity {
 				}
 			}
 
-			/// HACK!
+			/// HACK! force perfect squareness
 			rgbHeader.pixToProjScale = (VectorD2)((VectorD2)(rgbHeader.pixToProjScale)).Max();
 
 			// we're going with the notion that the height and rgb maps line up.
 			//hmToRGBPixScale = hmHeader.pixToProjScale / rgbHeader.pixToProjScale;
 			hmToRGBPixScale = rgbHeader.sizePix / hmHeader.sizePix;
-
-			if (preRotation != RasterRotation.None) {
-				Util.Log("\nSource images will be rotated {0} before processing.", preRotation);
-			}
 		}
 
 		void computePrimaryTileSizes() {
-			hmRegion0TileSize = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmHeader.sizePix.Min()), hmOutMaxTexSize);
+			if(hmImportantSize.Min() < 0) {
+				hmImportantOrigin = (VectorD2)0;
+				hmImportantSize = hmHeader.sizePix;
+			}
+
+			hmRegion0TileSize = (VectorD2)Math.Min(calcHeightMapSizeLTE(hmImportantSize.Min()), hmOutMaxTexSize);
 
 			VectorD2 rgbOutTileSizePix = hmRegion0TileSize * hmToRGBPixScale;
 
 			while (rgbOutTileSizePix.Max() > rgbOutMaxTexSize) {
 				hmRegion0TileSize = (VectorD2)calcHeightMapSizeLTE(hmRegion0TileSize.x - 1);
 				rgbOutTileSizePix = (hmRegion0TileSize * hmToRGBPixScale).Floor();
+			}
+
+			if (hmRegion0TileSize.Max() < hmOutMinTexSize) {
+				Util.Error("Height and RGB size constraints can not be resolved.");
+			}
+
+			{
+				int borderLeft = (int)hmImportantOrigin.x;
+				int borderTop = (int)hmImportantOrigin.y;
+				int borderRight = (int)(hmHeader.sizePix.width - (hmImportantOrigin.x + hmImportantSize.width));
+				int borderBottom = (int)(hmHeader.sizePix.height - (hmImportantOrigin.y + hmImportantSize.height));
+				int tileSize0 = (int)hmRegion0TileSize.width;
+				int tileSize1 = (int)calcHeightMapSizeLTE(tileSize0 - 1);
+				int tileSize2 = (int)calcHeightMapSizeLTE(tileSize1 - 1);
+
+				int leftoverRight = (int)hmImportantSize.width % tileSize0;
+				int leftoverBottom = (int)hmImportantSize.height % tileSize0;
+
+				//
+				// @TODO: calculate cropping and (last resort) scaling
+				// necessary to to get entirety of important area into artifact-free zone.
+				//
+			}
+
+			if (hmCropSize.Min() > 0) {
+				Util.Log("\nSource height map will be cropped to origin:{0} size:{1} (with corresponding crop to RGB image)", hmCropOrigin, hmCropSize);
+			}
+
+			if (preRotation != RasterRotation.None) {
+				Util.Log("\nSource images will be rotated {0} before processing.", preRotation);
 			}
 		}
 
@@ -200,10 +233,14 @@ namespace GeoTiff2Unity {
 				Util.Log("");
 				loadPixelData(ref hmTiffIn, hmHeader, hmRasterIn);
 
+				if (hmCropSize.Min() > 0) {
+					hmRasterIn = hmRasterIn.Clone(hmCropOrigin, hmCropSize);
+					hmHeader.Crop(hmCropOrigin, hmCropSize);
+				}
+
 				hmRasterIn = processHeightMapData(hmRasterIn);
 
 				if (preRotation != RasterRotation.None) {
-
 					hmRasterIn.Rotate(preRotation);
 					hmHeader.Rotate(preRotation);
 				}
@@ -238,6 +275,13 @@ namespace GeoTiff2Unity {
 
 			Util.Log("");
 			loadPixelData(ref rgbTiffIn, rgbHeader, rgbRasterIn);
+
+			if (hmCropSize.Min() > 0) {
+				var rgbCropOrigin = (hmCropOrigin * hmToRGBPixScale).Floor();
+				var rgbCropSize = (hmCropSize * hmToRGBPixScale).Floor();
+				rgbRasterIn = rgbRasterIn.Clone(rgbCropOrigin, rgbCropSize);
+				rgbHeader.Crop(rgbCropOrigin, rgbCropSize);
+			}
 
 			if (preRotation != RasterRotation.None) {
 
@@ -666,6 +710,9 @@ namespace GeoTiff2Unity {
 		VectorD2 hmToRGBPixScale = (VectorD2)0;
 		VectorD2 hmRegion0TileSize = (VectorD2)0;
 		HashSet<ushort> regionIdSet = new HashSet<ushort>();
+
+		VectorD2 hmCropOrigin = (VectorD2)0.0;
+		VectorD2 hmCropSize = (VectorD2)(-1.0);
 	}
 
 	class GeoTiffHeader {
@@ -681,6 +728,16 @@ namespace GeoTiff2Unity {
 		public double minSampleValue = 0;
 		public double maxSampleValue = 0;
 		public int noSampleValue = 0;
+
+		public void Crop(VectorD2 origin, VectorD2 size) {
+			if (origin.Max() > 0 && tiePoints?.Length > 0) {
+				if (tiePoints.Length > 1) {
+					Util.Warn("GeoTiffHeader.Crop only modifying TiePoint[0]. {1} TiePoint(s) not changed.", tiePoints.Length - 1);
+				}
+				tiePoints[0].modelPt += (VectorD3)(origin * (VectorD2)pixToProjScale);
+			}
+			sizePix = size;
+		}
 
 		public void Rotate(RasterRotation rotation) {
 			if ( rotation == RasterRotation.None ) {

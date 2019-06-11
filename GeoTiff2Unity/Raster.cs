@@ -411,9 +411,7 @@ namespace R9N {
 
 		private static Type getPixChannelType() {
 			Type t = typeof(T);
-			if (t.IsByRef) {
-				throw new Exception(string.Format("Invalid pixel type {0}, must be primitive or composed of public primitives.", t));
-			}
+
 			if (t.IsPrimitive) {
 				return t;
 			}
